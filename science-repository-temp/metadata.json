@@ -1,0 +1,6 @@
+{
+  "name": "Science Repository",
+  "description": "Past Questions and Solution Repository System for Science-Based Courses. Allows students to access previous examination questions, study patterns, and check solutions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
