@@ -1,11 +1,9 @@
+# PastQ-Hub
 
-  # Quiz and Forum Features
+This is the OAU CPE 508 and Science Repository Past Question Hub.
 
-  This is a code bundle for Quiz and Forum Features. The original project is available at https://www.figma.com/design/q3WumamhQ8IOesN8ubE67x/Quiz-and-Forum-Features.
+## Running the code
 
-  ## Running the code
+Run `npm install` to install dependencies.
 
-  Run `npm i` to install the dependencies.
-
-  Run `npm run dev` to start the development server.
-  
+Run `npm run dev` to start the development server.
