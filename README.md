@@ -49,6 +49,9 @@ Cloud Firestore · Google Gemini · jsPDF
 
 ## Before deploying
 
+Verifying it works? Follow [DEMO-SCRIPT.md](DEMO-SCRIPT.md) — an ordered click-through
+of every feature, about 30 minutes, needs nothing set up first.
+
 **If you have Firebase console access, read [FIREBASE-SETUP.md](FIREBASE-SETUP.md)** —
 it is the ordered checklist for making this safe to share. Two things matter most:
 

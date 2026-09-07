@@ -71,7 +71,9 @@ suite is now idempotent.
 Nobody has logged into the deployed app and clicked through it. The Seed button,
 Manage Roles, the Report flow and Bookmarks are all correct by inspection and pass
 their type and rules checks, but have not been exercised against live Firebase by a
-human. **Budget thirty minutes to click every new button before the defence.**
+human. **Budget thirty minutes to click every new button before the defence** —
+[DEMO-SCRIPT.md](DEMO-SCRIPT.md) is the ordered path, and it needs nothing from the
+Firebase admin to run locally.
 
 ---
 
