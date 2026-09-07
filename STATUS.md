@@ -80,7 +80,8 @@ human. **Budget thirty minutes to click every new button before the defence.**
 The rules are written and verified. Until they are deployed, the database is still
 open and every role check in the app is decoration.
 
-**Deploy them in this order:**
+Full checklist for whoever holds the Firebase project:
+[FIREBASE-SETUP.md](FIREBASE-SETUP.md). The short version:
 
 1. **Promote your first admin by hand** in the Firebase console — set one user's
    `role` to `admin`.

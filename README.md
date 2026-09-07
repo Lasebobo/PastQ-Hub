@@ -49,7 +49,8 @@ Cloud Firestore · Google Gemini · jsPDF
 
 ## Before deploying
 
-Read `TODO.md`. Two things matter most:
+**If you have Firebase console access, read [FIREBASE-SETUP.md](FIREBASE-SETUP.md)** —
+it is the ordered checklist for making this safe to share. Two things matter most:
 
 1. **The Firestore rules are not deployed**, so the database is currently open.
 2. **Promote your first admin by hand in the Firebase console *before* deploying
