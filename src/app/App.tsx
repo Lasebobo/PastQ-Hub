@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  BookOpen, Search, Download, TrendingUp, MessageSquare, Users,
+  BookOpen, Search, Download, TrendingUp, MessageSquare,
   Upload, Clock, CheckCircle, XCircle, ChevronRight, ChevronDown,
   Eye, EyeOff, Heart, Share2, Plus, X, Camera, FileText, LogOut,
   Play, Award, Send, ChevronLeft, AlertCircle, Check, Loader2,
-  Star, Settings, Paperclip, Image, GraduationCap, Menu, Flame,
+  Star, Paperclip, Image, GraduationCap, Menu, Flame,
   Zap, Pin, Library, FolderOpen, ShieldCheck, BookMarked, Bookmark, Sparkles,
 } from "lucide-react";
+
+import jsPDF from 'jspdf';
 
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { auth, db } from './lib/firebase';
@@ -16,7 +18,7 @@ import { collection, query, getDocs, where, doc, getDoc, setDoc, updateDoc, arra
 // ─── TYPES ───────────────────────────────────────────────────
 
 type Role = "student" | "lecturer" | "admin";
-type View = "library" | "quiz" | "forum" | "upload" | "trends" | "admin" | "repository";
+type View = "library" | "quiz" | "forum" | "upload" | "trends" | "admin" | "repository" | "bookmarks";
 type AuthMode = "login" | "register";
 type QuizStep = "setup" | "taking" | "results";
 
@@ -424,7 +426,6 @@ function deptColor(dept: string) { return DEPT_COLORS[dept] || "bg-gray-600"; }
 
 function cn(...cls: (string | boolean | undefined | null)[]) { return cls.filter(Boolean).join(" "); }
 
-const FORUM_THREADS: any[] = [];
 
 // ─── AUTH MODAL ───────────────────────────────────────────────
 
@@ -449,8 +450,10 @@ function AuthModal() {
         try {
           await signInWithEmailAndPassword(auth, email, password);
         } catch (err: any) {
-          // If login fails (user not found or invalid credential), check if we can auto-register as a demo login helper
-          if (email && password.length >= 6 && 
+          // Demo convenience: a failed login silently creates the account and infers a
+          // role from the email address. That is a privilege-escalation hole, so it is
+          // gated to development only and is stripped from production builds.
+          if (import.meta.env.DEV && email && password.length >= 6 &&
               (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential" || err.code === "auth/wrong-password")) {
             try {
               const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -483,7 +486,8 @@ function AuthModal() {
           setLoading(false);
           return;
         }
-        if (role === "admin" && adminCode !== "OAU_ADMIN_2024") {
+        // Dev-only: unreachable in production, where "admin" cannot be selected.
+        if (import.meta.env.DEV && role === "admin" && adminCode !== "OAU_ADMIN_2024") {
           setError("Invalid administrator code. Contact the system administrator.");
           setLoading(false);
           return;
@@ -536,10 +540,15 @@ function AuthModal() {
 
 
 
+  // firestore.rules only permits self-registration as a student — an admin promotes
+  // people from there. Offering the elevated roles in production would just produce a
+  // permission error, and shipping the admin code is what made escalation possible.
   const ROLES: { value: Role; label: string; desc: string }[] = [
     { value: "student", label: "Student", desc: "Browse PQs, take quizzes, join forums" },
-    { value: "lecturer", label: "Lecturer", desc: "All student features + suggest uploads" },
-    { value: "admin", label: "Administrator", desc: "Full access — upload PQs, approve content" },
+    ...(import.meta.env.DEV ? [
+      { value: "lecturer" as Role, label: "Lecturer", desc: "All student features + suggest uploads" },
+      { value: "admin" as Role, label: "Administrator", desc: "Full access — upload PQs, approve content" },
+    ] : []),
   ];
 
   return (
@@ -623,7 +632,10 @@ function AuthModal() {
                     <input value={adminCode} onChange={e => setAdminCode(e.target.value)}
                       placeholder="Contact system admin for code"
                       className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/25 focus:border-[#0F2340] transition-all" />
-                    <p className="text-[10px] text-gray-400 mt-1">Demo code: OAU_ADMIN_2024</p>
+                    {/* Dev only — this must never ship in a production bundle. */}
+                    {import.meta.env.DEV && (
+                      <p className="text-[10px] text-gray-400 mt-1">Demo code: OAU_ADMIN_2024</p>
+                    )}
                   </div>
                 )}
               </>
@@ -655,7 +667,8 @@ function AuthModal() {
             Continue with Google
           </button>
 
-          {mode === "login" && (
+          {/* Dev only — these credentials must never ship in a production bundle. */}
+          {mode === "login" && import.meta.env.DEV && (
             <p className="text-center text-xs text-gray-400 mt-4">
               Admin demo:{" "}
               <button className="text-[#E8A020] font-semibold hover:underline"
@@ -679,6 +692,7 @@ function Sidebar({ view, setView, user, onLogout, mobile, onClose }: {
   const nav = [
     { id: "library" as View, icon: Library, label: "PQ Library" },
     { id: "quiz" as View, icon: Play, label: "Quiz" },
+    { id: "bookmarks" as View, icon: BookMarked, label: "Bookmarks" },
     { id: "forum" as View, icon: MessageSquare, label: "Forum" },
     { id: "trends" as View, icon: TrendingUp, label: "Trends" },
     ...(user.role !== "student" ? [{ id: "upload" as View, icon: Upload, label: "Upload" }] : []),
@@ -771,7 +785,7 @@ function PQCard({ pq, onOpen }: { pq: PQFile; onOpen: () => void }) {
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Top Topics</p>
           <div className="space-y-1">
             {topTopics.map(([topic, freq]) => {
-              const { label, cls, icon } = freqMeta(freq);
+              const { cls, icon } = freqMeta(freq);
               return (
                 <div key={topic} className="flex items-center justify-between">
                   <span className="text-xs text-gray-600 truncate">{topic}</span>
@@ -837,36 +851,95 @@ function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions }: {
   const sections = [...new Set(pq.questions.map(q => q.section))];
 
   const downloadPaper = () => {
-    const lines = [
-      `${pq.faculty.toUpperCase()}`,
-      `DEPARTMENT OF ${pq.department.toUpperCase()}`,
-      `${pq.courseCode} — ${pq.courseTitle}`,
-      `${pq.semester} Semester Examination, ${pq.session} Academic Session`,
-      ``,
-      `INSTRUCTIONS: ${pq.instructions}`,
-      `Total Marks: ${pq.totalMarks}`,
-      `${"─".repeat(60)}`,
-      ``,
-    ];
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const PAGE_W = doc.internal.pageSize.getWidth();
+    const PAGE_H = doc.internal.pageSize.getHeight();
+    const M = 18;                    // margin
+    const W = PAGE_W - M * 2;        // usable width
+    let y = M;
+
+    // jsPDF's built-in fonts are Latin-1, so characters like — and ₦ would render
+    // as mojibake. Fold the ones our content actually uses down to ASCII.
+    const ascii = (s: string) => (s || "")
+      .replace(/[—–]/g, "-").replace(/[""]/g, '"').replace(/['']/g, "'")
+      .replace(/[─│]/g, "-").replace(/…/g, "...").replace(/×/g, "x")
+      .replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/[^\x00-\xFF]/g, "");
+
+    const room = (needed: number) => {
+      if (y + needed > PAGE_H - M) { doc.addPage(); y = M; return true; }
+      return false;
+    };
+
+    const write = (
+      text: string,
+      { size = 10, style = "normal", gap = 4, indent = 0 } = {}
+    ) => {
+      doc.setFont("helvetica", style);
+      doc.setFontSize(size);
+      const lines: string[] = doc.splitTextToSize(ascii(text), W - indent);
+      for (const line of lines) {
+        room(size * 0.45);
+        doc.text(line, M + indent, y);
+        y += size * 0.45;
+      }
+      y += gap;
+    };
+
+    const rule = () => {
+      room(3);
+      doc.setDrawColor(180).setLineWidth(0.3).line(M, y, PAGE_W - M, y);
+      y += 5;
+    };
+
+    // ── Cover block ──────────────────────────────────────────────────────────
+    doc.setTextColor(15, 35, 64);
+    write(pq.faculty.toUpperCase(), { size: 11, style: "bold", gap: 1 });
+    write(`DEPARTMENT OF ${pq.department.toUpperCase()}`, { size: 11, style: "bold", gap: 3 });
+    write(`${pq.courseCode} - ${pq.courseTitle}`, { size: 15, style: "bold", gap: 2 });
+    doc.setTextColor(60);
+    write(`${pq.semester} Semester Examination, ${pq.session} Academic Session`, { size: 10, gap: 3 });
+    rule();
+    doc.setTextColor(0);
+    write(`INSTRUCTIONS: ${pq.instructions}`, { size: 9.5, gap: 2 });
+    write(`Total Marks: ${pq.totalMarks}   |   Questions: ${pq.questions.length}`, { size: 9.5, style: "bold", gap: 3 });
+    rule();
+
+    // ── Questions, by section ────────────────────────────────────────────────
     sections.forEach(sec => {
-      const qs = pq.questions.filter(q => q.section === sec);
-      lines.push(`SECTION ${sec}`);
-      lines.push("");
-      qs.forEach(q => {
-        lines.push(`${q.number}. (${q.marks} mark${q.marks !== 1 ? "s" : ""}) [Topic: ${q.topic}]`);
-        lines.push(q.text);
-        if (q.options) q.options.forEach(o => lines.push(`   ${o}`));
-        lines.push(`ANSWER: ${q.answer}`);
-        lines.push(`SOLUTION: ${q.solution}`);
-        lines.push("");
+      room(14);
+      doc.setTextColor(15, 35, 64);
+      write(`SECTION ${sec}`, { size: 12, style: "bold", gap: 3 });
+      doc.setTextColor(0);
+
+      pq.questions.filter(q => q.section === sec).forEach(q => {
+        room(24); // keep a question's header with at least some of its body
+        write(`${q.number}.  (${q.marks} mark${q.marks !== 1 ? "s" : ""})   [${q.topic}]`,
+          { size: 10, style: "bold", gap: 1.5 });
+        write(q.text, { size: 10, gap: 2 });
+
+        if (q.options) {
+          q.options.forEach(o => write(o, { size: 9.5, gap: 0.5, indent: 6 }));
+          y += 1.5;
+        }
+
+        doc.setTextColor(11, 122, 91);
+        write(`ANSWER: ${q.answer}`, { size: 9.5, style: "bold", gap: 1.5, indent: 4 });
+        doc.setTextColor(70);
+        write(`SOLUTION: ${q.solution}`, { size: 9, gap: 5, indent: 4 });
+        doc.setTextColor(0);
       });
     });
-    const filename = `${pq.courseCode.replace(" ", "_")}_Exam_${pq.session.replace("/", "_")}.txt`;
-    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
+
+    // ── Page numbers ─────────────────────────────────────────────────────────
+    const total = doc.getNumberOfPages();
+    for (let p = 1; p <= total; p++) {
+      doc.setPage(p);
+      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(150);
+      doc.text(`${pq.courseCode} - ${pq.session}`, M, PAGE_H - 10);
+      doc.text(`Page ${p} of ${total}`, PAGE_W - M, PAGE_H - 10, { align: "right" });
+    }
+
+    doc.save(`${pq.courseCode.replace(/ /g, "_")}_Exam_${pq.session.replace(/\//g, "_")}.pdf`);
   };
 
   return (
@@ -898,9 +971,9 @@ function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions }: {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button onClick={downloadPaper}
+            <button onClick={downloadPaper} title="Download this paper with answers and solutions as a PDF"
               className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-              <Download size={14} /> Download
+              <Download size={14} /> Download PDF
             </button>
             <button onClick={() => onStartQuiz(pq)}
               className="flex items-center gap-2 bg-[#E8A020] text-[#0F2340] rounded-xl px-4 py-2 text-sm font-bold hover:bg-[#d49018] transition-colors">
@@ -1009,11 +1082,12 @@ function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions }: {
 
 // ─── LIBRARY VIEW ─────────────────────────────────────────────
 
-function LibraryView({ onOpenPQ, onStartQuiz, user }: {
+function LibraryView({ onOpenPQ, user, allPqFilesList }: {
   onOpenPQ: (pq: PQFile) => void;
-  onStartQuiz: (pq: PQFile) => void;
   user: User;
+  allPqFilesList: PQFile[];
 }) {
+  const ALL_PQ_FILES = allPqFilesList;
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [filterYear, setFilterYear] = useState("");
@@ -1045,7 +1119,7 @@ function LibraryView({ onOpenPQ, onStartQuiz, user }: {
           { label: "Papers Available", value: ALL_PQ_FILES.length, icon: FileText, bg: "bg-blue-50", fg: "text-blue-600" },
           { label: "Total Questions", value: ALL_PQ_FILES.reduce((s, p) => s + p.questions.length, 0), icon: BookOpen, bg: "bg-amber-50", fg: "text-amber-600" },
           { label: "Departments", value: depts.length, icon: GraduationCap, bg: "bg-purple-50", fg: "text-purple-600" },
-          { label: "Years Covered", value: "25+", icon: TrendingUp, bg: "bg-emerald-50", fg: "text-emerald-600" },
+          { label: "Sessions Covered", value: years.length, icon: TrendingUp, bg: "bg-emerald-50", fg: "text-emerald-600" },
         ].map(({ label, value, icon: Icon, bg, fg }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
             <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center mb-2.5", bg)}>
@@ -1088,7 +1162,18 @@ function LibraryView({ onOpenPQ, onStartQuiz, user }: {
       {filtered.length === 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
           <FileText size={40} className="text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-400 text-sm">No papers match your search.</p>
+          {ALL_PQ_FILES.length === 0 ? (
+            <>
+              <p className="text-gray-400 text-sm">No papers in the repository yet.</p>
+              <p className="text-gray-300 text-xs mt-1">
+                {user.role === "student"
+                  ? "Approved papers will appear here once a lecturer uploads them."
+                  : "Upload a paper, then approve it in the Repository to publish it here."}
+              </p>
+            </>
+          ) : (
+            <p className="text-gray-400 text-sm">No papers match your search.</p>
+          )}
         </div>
       )}
 
@@ -1122,6 +1207,12 @@ function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | null; al
   const [timeLeft, setTimeLeft] = useState(0);
   const [theoryInput, setTheoryInput] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Leaving the Quiz mid-countdown used to leave the interval running, which then
+  // called setStep on an unmounted component every second.
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+  }, []);
 
   useEffect(() => {
     if (ALL_PQ_FILES.length > 0 && !ALL_PQ_FILES.find(p => p.id === selPQ)) {
@@ -1416,10 +1507,11 @@ function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | null; al
 
 // ─── FORUM VIEW ───────────────────────────────────────────────
 
-function ForumView({ user }: { user: User }) {
+function ForumView({ user, allPqFilesList }: { user: User; allPqFilesList: PQFile[] }) {
+  const ALL_PQ_FILES = allPqFilesList;
   const [selCourse, setSelCourse] = useState("CPE 508");
   const [threads, setThreads] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [selThread, setSelThread] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -1445,6 +1537,7 @@ function ForumView({ user }: { user: User }) {
           likes: data.likes ? data.likes.length : 0,
           replies: data.comments ? data.comments.length : 0,
           pinned: data.pinned || false,
+          flagged: data.flagged || false,
           body: data.content || "",
           comments: (data.comments || []).map((c: any, index: number) => ({
             id: c.id || `c_${index}`,
@@ -1471,7 +1564,16 @@ function ForumView({ user }: { user: User }) {
     fetchThreads();
   }, []);
 
+  // Course tabs come from the papers actually in the repository, so uploading a new
+  // course gives it a forum category instead of leaving its threads unreachable.
   const courses = [...new Set(ALL_PQ_FILES.map(p => p.courseCode))];
+
+  // "CPE 508" is only the initial guess — fall back to a course that actually exists.
+  // Declared after `courses`: the dependency array is evaluated during render, so
+  // referencing it above would hit the temporal dead zone.
+  useEffect(() => {
+    if (courses.length > 0 && !courses.includes(selCourse)) setSelCourse(courses[0]);
+  }, [courses.join(","), selCourse]);
   const courseThreads = threads.filter(t => t.courseId === selCourse);
   const thread = threads.find(t => t.id === selThread);
 
@@ -1560,6 +1662,25 @@ function ForumView({ user }: { user: User }) {
     return "bg-gray-100 text-gray-500";
   };
 
+  // Reporting writes onto the thread itself, so it works under firestore.rules
+  // (author and title are untouched) without needing a second collection.
+  const reportThread = async (tid: string) => {
+    const reason = prompt("What is wrong with this post? (optional)") ?? undefined;
+    if (reason === undefined) return; // cancelled
+    try {
+      await updateDoc(doc(db, 'threads', tid), {
+        flagged: true,
+        flagReason: reason.trim() || "No reason given",
+        flaggedBy: user.name,
+        flaggedAt: Date.now(),
+      });
+      await fetchThreads();
+      alert("Reported. An administrator will review this post.");
+    } catch (err: any) {
+      alert(`Could not report this post: ${err.message || err}`);
+    }
+  };
+
   if (selThread && thread) return (
     <div className="p-6 lg:p-8 max-w-3xl">
       <button onClick={() => setSelThread(null)} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#0F2340] mb-5 transition-colors">
@@ -1574,6 +1695,12 @@ function ForumView({ user }: { user: User }) {
           </div>
           <span>·</span><span>{thread.date}</span><span>·</span>
           <span className="flex items-center gap-1"><Eye size={11} />{thread.views}</span>
+          <button onClick={() => reportThread(thread.id)}
+            disabled={thread.flagged}
+            title={thread.flagged ? "Already reported" : "Report this post to an administrator"}
+            className="ml-auto flex items-center gap-1 text-gray-300 hover:text-red-500 transition-colors disabled:text-amber-500 disabled:cursor-default">
+            <AlertCircle size={12} />{thread.flagged ? "Reported" : "Report"}
+          </button>
         </div>
         <p className="text-sm text-gray-700 leading-relaxed">{thread.body}</p>
         <div className="flex items-center gap-3 mt-5 pt-4 border-t border-gray-50">
@@ -1721,44 +1848,6 @@ function ForumView({ user }: { user: User }) {
 
 // ─── UPLOAD VIEW ──────────────────────────────────────────────
 
-const MOCK_OCR_CPE508 = `OBAFEMI AWOLOWO UNIVERSITY ILE-IFE, NIGERIA
-FACULTY OF TECHNOLOGY
-DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING
-
-CPE 508 Computer System Project Management
-Rain Semester Examination — 2022/2023 Academic Session
-July, 2024
-
-TIME ALLOWED: 2 Hours
-ATTEMPT ALL QUESTIONS IN SECTION A AND ANY FOUR (4) QUESTIONS IN SECTION B
-
-────────────────────────────────────────────
-SECTION A (10 Marks) — Fill in the Blank
-
-1) The output of every activity is known as ______________
-2) A dependency relationship type where the successor activity cannot start unless the predecessor activity finishes is called ______________
-3) A mark that signifies the end of a set of activities in a project is known as _____________
-4) _________ is an amazing tool in project management that shows a hierarchical breakdown of work activities...
-5) A type of dependency where activities stay the same, yet, the order changes, is called ___________
-6) A process to 'mitigate the adverse effects of loss' in Project Management is called: ________________
-7) The ultimate aim of a Project is to ___________________________
-8) External stakeholders can be __________ and _____________
-9) Decision tree analysis is majorly used for ______________________
-10) In making decision, it means you have ______________________
-
-────────────────────────────────────────────
-SECTION B
-
-QUESTION #1 (15 Marks)
-a) Correlate between Openness in the group and confidentiality as norms of a project team.
-b) There is diversity in IT project; why do you need a legal adviser?
-c) A project is proposed to develop a transcript system for the university...
-
-QUESTION #5 (15 Marks) — Calculations
-a) What does SPI value of 1 mean?
-b) AC = 800, EV = 780, PV = 810. Calculate the schedule variance.
-c) AC = 2100, EV = 1500. What is the cost variance?
-...`;
 
 function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQuestions: () => void }) {
   const [file, setFile] = useState<File | null>(null);
@@ -1797,7 +1886,7 @@ function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQu
     }
   };
 
-  const detectMeta = (filename: string, content?: string) => {
+  const detectMeta = (filename: string) => {
     const codeMatch = filename.match(/CPE[_\s]?(\d+)/i) ||
       filename.match(/MTH[_\s]?(\d+)/i) || filename.match(/PHY[_\s]?(\d+)/i) ||
       filename.match(/CSC[_\s]?(\d+)/i) || filename.match(/CHE[_\s]?(\d+)/i);
@@ -1830,9 +1919,11 @@ function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQu
     setOcrLoading(true); setOcrText("");
     try {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
       reader.onload = async () => {
-        const base64Data = reader.result as string;
+        const dataUrl = reader.result as string;
+        // Gemini's inlineData.data wants raw base64, not the "data:<mime>;base64," prefix.
+        const [meta, rawBase64] = dataUrl.split(",");
+        const mimeType = meta?.match(/^data:([^;]+)/)?.[1] || file.type || "image/jpeg";
         try {
           const res = await fetch("/api/ocr", {
             method: "POST",
@@ -1840,7 +1931,8 @@ function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQu
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              file: base64Data,
+              imageBase64: rawBase64,
+              mimeType,
               filename: file.name
             })
           });
@@ -1857,6 +1949,11 @@ function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQu
           setOcrLoading(false);
         }
       };
+      reader.onerror = () => {
+        setOcrText("Could not read that file. Try a different image or PDF.");
+        setOcrLoading(false);
+      };
+      reader.readAsDataURL(file);
     } catch (err: any) {
       console.error(err);
       setOcrLoading(false);
@@ -2038,22 +2135,195 @@ function UploadView({ userProfile, fetchQuestions }: { userProfile: any; fetchQu
   );
 }
 
+// ─── BOOKMARKS VIEW ───────────────────────────────────────────
+
+function BookmarksView({ allPqFilesList, userProfile, onOpenPQ }: {
+  allPqFilesList: PQFile[];
+  userProfile: any;
+  onOpenPQ: (pq: PQFile) => void;
+}) {
+  // Kept locally so removing a bookmark updates immediately — AuthContext only
+  // refetches the profile on an auth state change, not after a write.
+  const [saved, setSaved] = useState<Set<string>>(new Set(userProfile?.bookmarkedQuestions || []));
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (userProfile?.bookmarkedQuestions) setSaved(new Set(userProfile.bookmarkedQuestions));
+  }, [userProfile]);
+
+  const remove = async (qId: string) => {
+    setError("");
+    const next = new Set(saved); next.delete(qId);
+    setSaved(next);
+    try {
+      await updateDoc(doc(db, 'users', userProfile.id), { bookmarkedQuestions: arrayRemove(qId) });
+    } catch (err: any) {
+      setSaved(prev => new Set(prev).add(qId));
+      setError(err.message || "Could not remove that bookmark.");
+    }
+  };
+
+  const toggle = (id: string) =>
+    setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // Group saved questions under the paper they came from, so the list stays readable.
+  const groups = allPqFilesList
+    .map(pq => ({ pq, questions: pq.questions.filter(q => saved.has(q.id)) }))
+    .filter(g => g.questions.length > 0);
+
+  const totalSaved = groups.reduce((s, g) => s + g.questions.length, 0);
+  // A bookmark can outlive its question — an admin can delete or un-approve it.
+  const orphaned = saved.size - totalSaved;
+
+  return (
+    <div className="p-6 lg:p-8 max-w-4xl">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-[#0F2340]">Bookmarks</h1>
+        <p className="text-gray-500 text-sm mt-1">
+          Questions you saved for later review{totalSaved > 0 ? ` — ${totalSaved} saved` : ""}.
+        </p>
+        {error && <p className="text-red-600 text-xs mt-2 font-semibold">{error}</p>}
+        {orphaned > 0 && (
+          <p className="text-gray-400 text-xs mt-2">
+            {orphaned} saved question{orphaned !== 1 ? "s are" : " is"} no longer in the repository and cannot be shown.
+          </p>
+        )}
+      </div>
+
+      {groups.length === 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+          <BookMarked size={40} className="text-gray-200 mx-auto mb-3" />
+          <p className="text-gray-400 text-sm">Nothing saved yet.</p>
+          <p className="text-gray-300 text-xs mt-1">
+            Open any paper in the Library and tap the bookmark icon on a question to save it here.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-6">
+        {groups.map(({ pq, questions }) => (
+          <div key={pq.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-gray-50 flex items-center gap-3">
+              <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0", deptColor(pq.department))}>
+                {pq.courseCode.split(" ")[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-800 truncate">{pq.courseCode} — {pq.session}</p>
+                <p className="text-xs text-gray-400 truncate">{pq.courseTitle} · {questions.length} saved</p>
+              </div>
+              <button onClick={() => onOpenPQ(pq)}
+                className="text-xs border border-gray-200 px-3 py-1.5 rounded-xl text-gray-600 hover:bg-gray-50 font-semibold shrink-0">
+                Open paper
+              </button>
+            </div>
+
+            <div className="divide-y divide-gray-50">
+              {questions.map(q => {
+                const open = expanded.has(q.id);
+                return (
+                  <div key={q.id} className="p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-xs font-bold text-gray-400 mt-0.5 shrink-0">{q.number}.</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800">{q.text}</p>
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          <span className="text-[10px] font-semibold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-lg">{q.topic}</span>
+                          <span className="text-[10px] text-gray-400">{q.marks} mark{q.marks !== 1 ? "s" : ""}</span>
+                          <button onClick={() => toggle(q.id)}
+                            className="text-[11px] font-semibold text-[#E8A020] hover:underline flex items-center gap-0.5">
+                            {open ? <><ChevronDown size={11} /> Hide answer</> : <><ChevronRight size={11} /> Show answer</>}
+                          </button>
+                        </div>
+                      </div>
+                      <button onClick={() => remove(q.id)} title="Remove bookmark"
+                        className="text-[#E8A020] hover:text-gray-400 transition-colors shrink-0">
+                        <BookMarked size={15} />
+                      </button>
+                    </div>
+
+                    {open && (
+                      <div className="mt-3 ml-6 space-y-2">
+                        {q.options && (
+                          <div className="space-y-1">
+                            {q.options.map(opt => (
+                              <p key={opt} className="text-xs text-gray-500">{opt}</p>
+                            ))}
+                          </div>
+                        )}
+                        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                          <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">
+                            {q.type === "fillblank" ? "Answer" : "Model Answer"}
+                          </p>
+                          <p className="text-sm text-emerald-900 font-semibold">{q.answer}</p>
+                        </div>
+                        {q.solution && (
+                          <div className="bg-gray-50 rounded-xl p-3">
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Solution</p>
+                            <p className="text-xs text-gray-600 whitespace-pre-line">{q.solution}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── TRENDS VIEW ──────────────────────────────────────────────
 
-function TrendsView() {
-  const [selPQ, setSelPQ] = useState("pq_cpe508_2223");
-  const pq = ALL_PQ_FILES.find(p => p.id === selPQ)!;
+function TrendsView({ allPqFilesList }: { allPqFilesList: PQFile[] }) {
+  const ALL_PQ_FILES = allPqFilesList;
+  const [selPQ, setSelPQ] = useState<string>(ALL_PQ_FILES[0]?.id || "");
+
+  useEffect(() => {
+    if (ALL_PQ_FILES.length > 0 && !ALL_PQ_FILES.find(p => p.id === selPQ)) {
+      setSelPQ(ALL_PQ_FILES[0].id);
+    }
+  }, [ALL_PQ_FILES, selPQ]);
+
+  const pq = ALL_PQ_FILES.find(p => p.id === selPQ);
+
+  const header = (
+    <div className="mb-6">
+      <h1 className="text-2xl font-bold text-[#0F2340]">Trend Analysis</h1>
+      <p className="text-gray-500 text-sm mt-1">
+        See which topics appear most frequently across every paper in the repository.
+      </p>
+    </div>
+  );
+
+  if (!pq) return (
+    <div className="p-6 lg:p-8 max-w-4xl">
+      {header}
+      <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+        <TrendingUp size={40} className="text-gray-200 mx-auto mb-3" />
+        <p className="text-gray-400 text-sm">No papers in the repository yet.</p>
+        <p className="text-gray-300 text-xs mt-1">Approve at least one paper to see topic trends.</p>
+      </div>
+    </div>
+  );
+
+  // Frequency = how many times a topic is actually asked across every paper in
+  // the repository, counted here rather than read from a stored field.
+  const globalTopicCounts = new Map<string, number>();
+  ALL_PQ_FILES.forEach(p =>
+    p.questions.forEach(q => globalTopicCounts.set(q.topic, (globalTopicCounts.get(q.topic) || 0) + 1)));
+
   const topicMap = new Map<string, number>();
-  pq.questions.forEach(q => topicMap.set(q.topic, q.frequency));
+  pq.questions.forEach(q => topicMap.set(q.topic, globalTopicCounts.get(q.topic) || 1));
   const topicStats = [...topicMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   const maxFreq = topicStats[0]?.[1] || 1;
 
   return (
     <div className="p-6 lg:p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#0F2340]">Trend Analysis</h1>
-        <p className="text-gray-500 text-sm mt-1">See which topics appear most frequently across 25 years of past questions.</p>
-      </div>
+      {header}
       <div className="mb-6">
         <select value={selPQ} onChange={e => setSelPQ(e.target.value)}
           className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20">
@@ -2144,7 +2414,7 @@ function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
   const ALL_PQ_FILES = allPqFilesList;
   const [pendingQs, setPendingQs] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<Record<string, "approved" | "rejected">>({});
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   const fetchPending = async () => {
     try {
@@ -2325,18 +2595,119 @@ function AdminPanel() {
     { label: "Registered Users", val: "1", c: "text-emerald-600" },
     { label: "Flagged Posts", val: "0", c: "text-red-500" },
   ]);
-  const [userCounts, setUserCounts] = useState({ Students: 0, Lecturers: 0, Admins: 1 });
   const [flagged, setFlagged] = useState<any[]>([]);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [modBusy, setModBusy] = useState<string | null>(null);
+  const [modMsg, setModMsg] = useState("");
+
+  // Moderation used to be entirely decorative: `flagged` was a state array nothing
+  // ever filled, and the buttons only hid rows locally. These act on Firestore.
+  const resolveFlag = async (tid: string, action: "dismiss" | "remove") => {
+    if (action === "remove" && !confirm("Delete this post permanently? This cannot be undone.")) return;
+    setModBusy(tid); setModMsg("");
+    try {
+      if (action === "remove") {
+        await deleteDoc(doc(db, 'threads', tid));
+      } else {
+        await updateDoc(doc(db, 'threads', tid), { flagged: false, flagReason: "", flaggedBy: "" });
+      }
+      setFlagged(prev => prev.filter(f => f.id !== tid));
+    } catch (err: any) {
+      setModMsg(`Could not ${action === "remove" ? "delete" : "dismiss"} that post: ${err.message || err}`);
+    } finally {
+      setModBusy(null);
+    }
+  };
+  const [seeding, setSeeding] = useState(false);
+  const [seedMsg, setSeedMsg] = useState("");
+  const [users, setUsers] = useState<any[]>([]);
+  const [roleSaving, setRoleSaving] = useState<string | null>(null);
+  const [roleMsg, setRoleMsg] = useState("");
+  const { user: authUser } = useAuth();
+
+  // Derived from `users` rather than stored, so the counts stay honest the moment a
+  // role is changed below, instead of waiting for a refetch.
+  const userCounts = {
+    Students: users.filter(u => u.role === "student").length,
+    Lecturers: users.filter(u => u.role === "lecturer").length,
+    Admins: users.filter(u => u.role === "admin").length,
+  };
+
+  // Granting a role is the one privileged action firestore.rules reserves for admins.
+  // Without this, promoting a lecturer would mean editing Firestore by hand.
+  const changeRole = async (uid: string, nextRole: Role) => {
+    if (uid === authUser?.uid) {
+      setRoleMsg("You cannot change your own role — ask another admin.");
+      return;
+    }
+    setRoleSaving(uid); setRoleMsg("");
+    const previous = users.find(u => u.id === uid)?.role;
+    setUsers(prev => prev.map(u => (u.id === uid ? { ...u, role: nextRole } : u)));
+    try {
+      await updateDoc(doc(db, 'users', uid), { role: nextRole });
+      setRoleMsg(`Role updated. It takes effect the next time they load the app.`);
+    } catch (err: any) {
+      setUsers(prev => prev.map(u => (u.id === uid ? { ...u, role: previous } : u)));
+      setRoleMsg(`Could not update role: ${err.message || err}`);
+    } finally {
+      setRoleSaving(null);
+    }
+  };
+
+  // Publishes the bundled sample papers into Firestore. Field names here must match
+  // what reconstructPQFiles() reads back — questionText/solutionText, not text/solution.
+  const seedDemoData = async () => {
+    setSeeding(true); setSeedMsg("");
+    try {
+      const existing = await getDocs(query(collection(db, 'questions'), where('createdBy', '==', 'system')));
+      if (!existing.empty) {
+        setSeedMsg(`Already seeded — ${existing.size} sample questions are in the database.`);
+        return;
+      }
+
+      const toInsert = ALL_PQ_FILES.flatMap(pq => pq.questions.map(q => {
+        const row: Record<string, any> = {
+          courseCode: pq.courseCode,
+          courseTitle: pq.courseTitle,
+          department: pq.department,
+          faculty: pq.faculty,
+          session: pq.session,
+          semester: pq.semester,
+          year: pq.year,
+          instructions: pq.instructions,
+          section: q.section,
+          number: q.number,
+          marks: q.marks,
+          topic: q.topic,
+          frequency: q.frequency,
+          questionText: q.text,
+          solutionText: q.solution,
+          answer: q.answer,
+          type: q.type,
+          status: "approved",
+          createdAt: Date.now(),
+          createdBy: "system",
+        };
+        // Firestore rejects undefined — only include options when the question has them.
+        if (q.options) row.options = q.options;
+        return row;
+      }));
+
+      await Promise.all(toInsert.map(row => addDoc(collection(db, 'questions'), row)));
+      setSeedMsg(`Published ${toInsert.length} questions across ${ALL_PQ_FILES.length} papers. Reloading…`);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err: any) {
+      setSeedMsg(`Seeding failed: ${err.message || err}`);
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const usersSnap = await getDocs(collection(db, 'users'));
-        const usersList = usersSnap.docs.map(doc => doc.data());
-        const studentsCount = usersList.filter((u: any) => u.role === 'student').length;
-        const lecturersCount = usersList.filter((u: any) => u.role === 'lecturer').length;
-        const adminsCount = usersList.filter((u: any) => u.role === 'admin').length;
+        const usersList = usersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id })) as any[];
+        setUsers(usersList.sort((a, b) => (a.name || "").localeCompare(b.name || "")));
 
         const pendingSnap = await getDocs(query(collection(db, 'questions'), where('status', '==', 'pending')));
         const pendingCount = pendingSnap.docs.length;
@@ -2350,18 +2721,17 @@ function AdminPanel() {
         });
         const papersCount = paperKeys.size;
 
+        const flaggedSnap = await getDocs(query(collection(db, 'threads'), where('flagged', '==', true)));
+        const flaggedList = flaggedSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+        setFlagged(flaggedList);
+
         setStats([
           { label: "Total Papers", val: String(papersCount), c: "text-blue-600" },
           { label: "Pending Review", val: String(pendingCount), c: "text-amber-600" },
           { label: "Registered Users", val: String(usersList.length), c: "text-emerald-600" },
-          { label: "Flagged Posts", val: "0", c: "text-red-500" },
+          { label: "Flagged Posts", val: String(flaggedList.length), c: "text-red-500" },
         ]);
 
-        setUserCounts({
-          Students: studentsCount,
-          Lecturers: lecturersCount,
-          Admins: adminsCount
-        });
       } catch (err) {
         console.error(err);
       }
@@ -2386,25 +2756,33 @@ function AdminPanel() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-6">
-        <div className="p-5 border-b border-gray-50"><h2 className="font-bold text-[#0F2340] text-sm">Flagged Forum Posts</h2></div>
+        <div className="p-5 border-b border-gray-50">
+          <h2 className="font-bold text-[#0F2340] text-sm">Flagged Forum Posts ({flagged.length})</h2>
+          <p className="text-gray-400 text-xs mt-0.5">Posts reported by students and lecturers.</p>
+          {modMsg && <p className="text-red-600 text-xs mt-2 font-semibold">{modMsg}</p>}
+        </div>
         <div className="divide-y divide-gray-50">
           {flagged.map(f => (
-            dismissed.has(f.id) ? null : (
-              <div key={f.id} className="p-4">
-                <p className="text-sm font-semibold text-gray-800 mb-0.5">"{f.thread}"</p>
-                <p className="text-xs text-gray-400 mb-3">By {f.user} · {f.reason}</p>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={() => setDismissed(p => new Set([...p, f.id]))}
-                    className="px-3 py-1.5 text-xs border border-gray-200 text-gray-500 rounded-xl hover:bg-gray-50 font-semibold">Dismiss</button>
-                  <button onClick={() => setDismissed(p => new Set([...p, f.id]))}
-                    className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold">Remove Post</button>
-                  <button onClick={() => setDismissed(p => new Set([...p, f.id]))}
-                    className="px-3 py-1.5 text-xs bg-[#0F2340] text-white rounded-xl hover:bg-[#1a3a6b] font-semibold">Ban User</button>
-                </div>
+            <div key={f.id} className="p-4">
+              <p className="text-sm font-semibold text-gray-800 mb-0.5">"{f.title}"</p>
+              <p className="text-xs text-gray-400 mb-1">
+                By {f.authorName || "Unknown"} · reported by {f.flaggedBy || "someone"}
+              </p>
+              <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded-lg mb-3">{f.flagReason}</p>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => resolveFlag(f.id, "dismiss")} disabled={modBusy === f.id}
+                  className="px-3 py-1.5 text-xs border border-gray-200 text-gray-500 rounded-xl hover:bg-gray-50 font-semibold disabled:opacity-50">
+                  Dismiss report
+                </button>
+                <button onClick={() => resolveFlag(f.id, "remove")} disabled={modBusy === f.id}
+                  className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-xl hover:bg-red-700 font-semibold disabled:opacity-50">
+                  Delete post
+                </button>
+                {modBusy === f.id && <Loader2 size={13} className="animate-spin text-gray-400 self-center" />}
               </div>
-            )
+            </div>
           ))}
-          {dismissed.size === flagged.length && (
+          {flagged.length === 0 && (
             <p className="p-4 text-sm text-gray-300 text-center">No flagged posts — all clear!</p>
           )}
         </div>
@@ -2429,7 +2807,78 @@ function AdminPanel() {
         </div>
       </div>
 
-      <div className="mt-8 bg-red-50 border border-red-100 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+      {/* Role management — the only way to grant a role once firestore.rules is live,
+          since self-registration can only ever produce a student. */}
+      <div className="mt-6 bg-white rounded-2xl border border-gray-100 shadow-sm">
+        <div className="p-5 border-b border-gray-50">
+          <h2 className="font-bold text-[#0F2340] text-sm">Manage Roles</h2>
+          <p className="text-gray-400 text-xs mt-0.5">
+            People can only sign up as students. Promote lecturers and admins here.
+          </p>
+          {roleMsg && (
+            <p className={cn("text-xs mt-2 font-semibold",
+              roleMsg.startsWith("Role updated") ? "text-emerald-600" : "text-red-600")}>
+              {roleMsg}
+            </p>
+          )}
+        </div>
+        <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto">
+          {users.map(u => {
+            const isSelf = u.id === authUser?.uid;
+            return (
+              <div key={u.id} className="p-4 flex items-center gap-4">
+                <div className="w-9 h-9 rounded-full bg-[#0F2340] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                  {(u.name || u.email || "?").substring(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">
+                    {u.name || "Unnamed"}
+                    {isSelf && <span className="text-[10px] text-gray-400 font-normal ml-1.5">(you)</span>}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                </div>
+                {roleSaving === u.id && <Loader2 size={13} className="animate-spin text-gray-400 shrink-0" />}
+                <select
+                  value={u.role || "student"}
+                  disabled={isSelf || roleSaving === u.id}
+                  onChange={e => changeRole(u.id, e.target.value as Role)}
+                  title={isSelf ? "You cannot change your own role" : "Change this person's role"}
+                  className="border border-gray-200 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-gray-600 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                  <option value="student">Student</option>
+                  <option value="lecturer">Lecturer</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </div>
+            );
+          })}
+          {users.length === 0 && (
+            <p className="text-sm text-gray-300 text-center py-6">No registered users yet.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 bg-white border border-gray-100 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 className="text-[#0F2340] font-bold text-sm">Demo Data</h3>
+          <p className="text-gray-500 text-xs mt-0.5">
+            Publish the {ALL_PQ_FILES.length} bundled sample papers ({ALL_PQ_FILES.reduce((s, p) => s + p.questions.length, 0)} questions)
+            to Firestore so the Library, Quiz and Trends screens have content to show.
+          </p>
+          {seedMsg && (
+            <p className={cn("text-xs mt-1.5 font-semibold",
+              seedMsg.startsWith("Seeding failed") ? "text-red-600" : "text-emerald-600")}>
+              {seedMsg}
+            </p>
+          )}
+        </div>
+        <button onClick={seedDemoData} disabled={seeding}
+          className="px-4 py-2.5 bg-[#0F2340] text-white rounded-xl font-bold text-xs hover:bg-[#1a3a6b] transition-colors shrink-0 disabled:opacity-60 flex items-center gap-2">
+          {seeding && <Loader2 size={12} className="animate-spin" />}
+          {seeding ? "Seeding…" : "Seed demo data"}
+        </button>
+      </div>
+
+      <div className="mt-4 bg-red-50 border border-red-100 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h3 className="text-red-800 font-bold text-sm">Dangerous Zone</h3>
           <p className="text-red-600 text-xs mt-0.5">Wipe the Firestore database to remove all demo data and start with a fresh website.</p>
@@ -2537,10 +2986,10 @@ function MainApp() {
     }
   }, [user]);
 
+  // Rebuild unconditionally: guarding on length > 0 left stale papers on screen after
+  // the database was emptied (the Admin Panel's reset, or every question un-approved).
   useEffect(() => {
-    if (dbQuestions.length > 0) {
-      setAllPqFiles(reconstructPQFiles(dbQuestions));
-    }
+    setAllPqFiles(reconstructPQFiles(dbQuestions));
   }, [dbQuestions]);
 
   if (loading) {
@@ -2590,19 +3039,33 @@ function MainApp() {
         </header>
 
         <main className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
-          {view === "library" && !selectedPQ && (
-            <LibraryView onOpenPQ={handleOpenPQ} onStartQuiz={handleStartQuiz} user={currentUser} allPqFilesList={allPqFiles} />
+          {/* Until the first fetch resolves, an empty repository and a loading one look
+              identical — which read as "there are no papers" on every page load.
+              Only the screens that read the paper list wait for it. */}
+          {loadingQuestions && view !== "upload" && view !== "admin" && (
+            <div className="p-16 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-6 h-6 text-[#0F2340] animate-spin" />
+              <p className="text-gray-400 text-sm">Loading past questions…</p>
+            </div>
           )}
-          {view === "library" && selectedPQ && (
+
+          {!loadingQuestions && view === "library" && !selectedPQ && (
+            <LibraryView onOpenPQ={handleOpenPQ} user={currentUser} allPqFilesList={allPqFiles} />
+          )}
+          {!loadingQuestions && view === "library" && selectedPQ && (
             <PQViewer pq={selectedPQ} onBack={() => setSelectedPQ(null)} onStartQuiz={handleStartQuiz} userProfile={profile} fetchQuestions={fetchQuestions} />
           )}
-          {view === "quiz" && <QuizView preloadPQ={quizPQ} allPqFilesList={allPqFiles} />}
-          {view === "forum" && <ForumView user={currentUser} />}
-          {view === "upload" && currentUser.role !== "student" && <UploadView userProfile={profile} fetchQuestions={fetchQuestions} />}
-          {view === "trends" && <TrendsView allPqFilesList={allPqFiles} />}
-          {view === "repository" && currentUser.role === "admin" && (
+          {!loadingQuestions && view === "quiz" && <QuizView preloadPQ={quizPQ} allPqFilesList={allPqFiles} />}
+          {!loadingQuestions && view === "bookmarks" && (
+            <BookmarksView allPqFilesList={allPqFiles} userProfile={profile} onOpenPQ={handleOpenPQ} />
+          )}
+          {!loadingQuestions && view === "forum" && <ForumView user={currentUser} allPqFilesList={allPqFiles} />}
+          {!loadingQuestions && view === "trends" && <TrendsView allPqFilesList={allPqFiles} />}
+          {!loadingQuestions && view === "repository" && currentUser.role === "admin" && (
             <RepositoryView onOpenPQ={handleOpenPQ} allPqFilesList={allPqFiles} fetchQuestions={fetchQuestions} />
           )}
+          {/* These two do not read the paper list, so they need not wait for it. */}
+          {view === "upload" && currentUser.role !== "student" && <UploadView userProfile={profile} fetchQuestions={fetchQuestions} />}
           {view === "admin" && currentUser.role === "admin" && <AdminPanel />}
         </main>
       </div>

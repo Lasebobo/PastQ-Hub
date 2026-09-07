@@ -1,0 +1,105 @@
+rules_version = '2';
+
+// PastQ-Hub Firestore security rules.
+//
+// Principle: the browser decides nothing about authorisation. A user's role lives
+// in their `users/{uid}` document, which they may create but may NOT change — only
+// an existing admin can grant a role. This is what closes the current hole where
+// anyone can register as an admin.
+//
+// NOT YET DEPLOYED. Deploy with:  firebase deploy --only firestore:rules
+//
+// ⚠️ Deploying these rules changes two app behaviours. Read before you deploy:
+//
+//   1. Self-registration always produces a STUDENT. The role picker on the sign-up
+//      form (and the OAU_ADMIN_2024 code) stops working — by design, since it was
+//      the hole. Promote the first admin by hand in the Firebase console, then use
+//      that account to promote everyone else.
+//   2. Lecturers can submit questions but only with status "pending". Only admins
+//      can approve. That already matches the intended workflow; it just wasn't
+//      enforced before.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return hasProfile() && profile().role == 'admin';
+    }
+
+    function isStaff() {
+      return hasProfile() && (profile().role == 'admin' || profile().role == 'lecturer');
+    }
+
+    // ── users ────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Own profile, or any profile if you're an admin (the Admin Panel counts users).
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+
+      // You may create only your own profile, and only as a student.
+      allow create: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'student'
+                    && request.resource.data.id == userId;
+
+      // You may edit your own profile but NOT your role — that is the escalation path.
+      // Bookmarks live on this document, so students must be able to write it.
+      allow update: if signedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role;
+
+      // Only an admin can change someone's role, and only an admin can delete.
+      allow update, delete: if isAdmin();
+    }
+
+    // ── questions ────────────────────────────────────────────────────────────
+    match /questions/{questionId} {
+      // Students see approved questions. Staff see everything, including pending
+      // submissions awaiting review.
+      allow read: if signedIn() && (resource.data.status == 'approved' || isStaff());
+
+      // Lecturers and admins may submit, but a submission always starts as pending
+      // and is always attributed to its actual author. An admin may seed approved
+      // content directly (the "Seed demo data" button).
+      allow create: if isStaff()
+                    && request.resource.data.createdBy == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow create: if isAdmin();
+
+      // Approving, rejecting, editing and deleting are admin-only.
+      allow update, delete: if isAdmin();
+    }
+
+    // ── threads (forum) ──────────────────────────────────────────────────────
+    match /threads/{threadId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+                    && request.resource.data.authorId == request.auth.uid;
+
+      // Any signed-in user may update a thread, because replying and liking both
+      // rewrite fields on the thread document itself. The author and title cannot
+      // be rewritten, so a thread cannot be hijacked.
+      allow update: if signedIn()
+                    && request.resource.data.authorId == resource.data.authorId
+                    && request.resource.data.title == resource.data.title;
+
+      // Authors can delete their own threads; admins can delete any.
+      allow delete: if isAdmin()
+                    || (signedIn() && resource.data.authorId == request.auth.uid);
+    }
+
+    // Anything not matched above is denied.
+  }
+}

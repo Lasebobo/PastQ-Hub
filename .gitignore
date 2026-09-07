@@ -1,1 +1,22 @@
 node_modules
+
+# Build output — regenerate with `npm run build`.
+# This was committed historically; untrack it with:
+#   git rm -r --cached dist
+dist
+
+# Local environment / secrets
+.env
+.env.local
+.env.*.local
+
+# OS noise
+.DS_Store
+
+# Firebase emulator artifacts (npm run test:rules / npm run emulator)
+*-debug.log
+.firebase/
+firebase.test.json
+
+# Local Claude Code session config (per-developer, not shared)
+.claude/
