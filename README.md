@@ -42,7 +42,13 @@ Cloud Firestore · Google Gemini · jsPDF
 
 | Path | What it is |
 | --- | --- |
-| `src/` | The application. Every screen lives in `src/app/App.tsx`. |
+| `src/app/App.tsx` | Tiny provider wrapper. |
+| `src/app/MainApp.tsx` | Authenticated shell, sidebar, mobile drawer, loading state, and view routing. |
+| `src/app/features/` | Screen-level features: auth, library, quiz, forum, upload, bookmarks, trends, repository, admin. |
+| `src/app/components/` | Shared layout and paper components used by multiple screens. |
+| `src/app/data/` | Bundled demo papers for the admin seed flow. |
+| `src/app/services/` | Firestore-facing helpers and paper reconstruction logic. |
+| `src/app/utils/` | Small presentation helpers for class names, department colours, and frequency badges. |
 | `api/` | The four AI endpoints, shared by the dev server and `server.js`. |
 | `server.js` | Production server — static files, API routes, SPA fallback. |
 | `firestore.rules` | Database security rules. **Not deployed yet** — see `TODO.md`. |
@@ -66,5 +72,6 @@ and the traps worth knowing before editing.
 
 ## Attribution
 
-See `ATTRIBUTIONS.md`. UI scaffolding from [shadcn/ui](https://ui.shadcn.com/) (MIT);
-originally exported from a [Figma Make](https://www.figma.com/design/q3WumamhQ8IOesN8ubE67x/Quiz-and-Forum-Features) bundle.
+See `ATTRIBUTIONS.md`. The original project was exported from a
+[Figma Make](https://www.figma.com/design/q3WumamhQ8IOesN8ubE67x/Quiz-and-Forum-Features)
+bundle; unused shadcn/ui scaffolding has since been removed from the live source.

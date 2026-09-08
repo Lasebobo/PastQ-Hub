@@ -73,6 +73,30 @@ async function expect(label, want, fn) {
 const STUDENT = "student1", LECTURER = "lecturer1", ADMIN = "admin1", OTHER = "student2";
 const PROMOTEE = "promoteMe";
 
+const threadData = (overrides = {}) => ({
+  courseCode: "CPE 508",
+  title: "Thread",
+  content: "Body",
+  authorId: STUDENT,
+  authorName: "Ada",
+  createdAt: 1,
+  views: 0,
+  replyCount: 0,
+  likes: [],
+  flagged: false,
+  ...overrides,
+});
+
+const commentData = (overrides = {}) => ({
+  authorId: OTHER,
+  authorName: "Obi",
+  role: "Student",
+  content: "Reply",
+  createdAt: 1,
+  likes: [],
+  ...overrides,
+});
+
 async function seed() {
   // Wipe first: the suite creates documents, so a second run would otherwise fail with
   // 409 "already exists" and look like a rules failure.
@@ -87,7 +111,13 @@ async function seed() {
   await update(`users/${ADMIN}`,    OWNER, { id: ADMIN,    email: "a@oau.edu", name: "Chidi", role: "admin",   bookmarkedQuestions: [] });
   await update("questions/qApproved", OWNER, { courseCode: "CPE 508", status: "approved", questionText: "Q", createdBy: "system" });
   await update("questions/qPending",  OWNER, { courseCode: "CPE 508", status: "pending",  questionText: "Q", createdBy: LECTURER });
-  await update("threads/t1", OWNER, { title: "Thread", content: "Body", authorId: STUDENT, authorName: "Ada", likes: [], comments: [], flagged: false });
+  for (const id of ["t1", "tLike", "tReport", "tViews", "tViewJump", "tReplies", "tHijack", "tAuthor", "tContent", "tOther", "tAdminDelete", "tComment"]) {
+    await update(`threads/${id}`, OWNER, threadData(id === "tOther" ? { authorId: OTHER, authorName: "Obi" } : {}));
+  }
+  await update("threads/tComment/comments/c1", OWNER, commentData());
+  await update("threads/tComment/comments/cEdit", OWNER, commentData());
+  await update("threads/tComment/comments/cOwn", OWNER, commentData({ authorId: STUDENT, authorName: "Ada" }));
+  await update("threads/tComment/comments/cAdminDelete", OWNER, commentData());
 }
 
 async function main() {
@@ -126,15 +156,31 @@ async function main() {
   console.log("\n── threads (forum) ─────────────────────────────────────────");
   await expect("student reads threads",                 "ALLOW", () => get("threads/t1", token(STUDENT)));
   await expect("signed-out reads threads",              "DENY",  () => get("threads/t1", "unauth"));
-  await expect("student creates own thread",            "ALLOW", () => create("threads/t2", token(STUDENT), { title: "New", content: "B", authorId: STUDENT, authorName: "Ada", likes: [], comments: [], flagged: false }));
-  await expect("student forges another author",         "DENY",  () => create("threads/t3", token(STUDENT), { title: "New", content: "B", authorId: ADMIN, authorName: "Chidi", likes: [], comments: [], flagged: false }));
-  await expect("student likes/comments on a thread",    "ALLOW", () => update("threads/t1", token(STUDENT), { title: "Thread", content: "Body", authorId: STUDENT, authorName: "Ada", likes: [STUDENT], comments: [], flagged: false }));
-  await expect("student REPORTS a thread (new flow)",   "ALLOW", () => update("threads/t1", token(OTHER),   { title: "Thread", content: "Body", authorId: STUDENT, authorName: "Ada", likes: [], comments: [], flagged: true, flagReason: "spam", flaggedBy: "Obi" }));
-  await expect("student hijacks a thread's title",      "DENY",  () => update("threads/t1", token(OTHER),   { title: "HIJACKED", content: "Body", authorId: STUDENT, authorName: "Ada", likes: [], comments: [], flagged: false }));
-  await expect("student steals a thread's authorship",  "DENY",  () => update("threads/t1", token(OTHER),   { title: "Thread", content: "Body", authorId: OTHER, authorName: "Obi", likes: [], comments: [], flagged: false }));
+  await expect("student creates own thread",            "ALLOW", () => create("threads/t2", token(STUDENT), threadData({ title: "New", content: "B" })));
+  await expect("student forges another author",         "DENY",  () => create("threads/t3", token(STUDENT), threadData({ title: "New", content: "B", authorId: ADMIN, authorName: "Chidi" })));
+  await expect("student likes a thread",                "ALLOW", () => update("threads/tLike", token(STUDENT), threadData({ likes: [STUDENT] })));
+  await expect("student REPORTS a thread (new flow)",   "ALLOW", () => update("threads/tReport", token(OTHER), threadData({ flagged: true, flagReason: "spam", flaggedBy: "Obi", flaggedAt: 2 })));
+  await expect("student increments thread views",       "ALLOW", () => update("threads/tViews", token(STUDENT), threadData({ views: 1 })));
+  await expect("student jumps thread views",            "DENY",  () => update("threads/tViewJump", token(STUDENT), threadData({ views: 10 })));
+  await expect("student increments reply count",        "ALLOW", () => update("threads/tReplies", token(STUDENT), threadData({ replyCount: 1 })));
+  await expect("student hijacks a thread's title",      "DENY",  () => update("threads/tHijack", token(OTHER), threadData({ title: "HIJACKED" })));
+  await expect("student steals a thread's authorship",  "DENY",  () => update("threads/tAuthor", token(OTHER), threadData({ authorId: OTHER, authorName: "Obi" })));
+  await expect("student rewrites thread content",       "DENY",  () => update("threads/tContent", token(OTHER), threadData({ content: "Edited by someone else" })));
   await expect("author deletes own thread",             "ALLOW", () => del("threads/t2", token(STUDENT)));
   await expect("student deletes SOMEONE ELSE's thread", "DENY",  () => del("threads/t1", token(OTHER)));
-  await expect("admin deletes any thread (moderation)", "ALLOW", () => del("threads/t1", token(ADMIN)));
+  await expect("admin deletes any thread (moderation)", "ALLOW", () => del("threads/tAdminDelete", token(ADMIN)));
+
+  console.log("\n── forum comments ──────────────────────────────────────────");
+  await expect("student reads comments",                "ALLOW", () => get("threads/tComment/comments/c1", token(STUDENT)));
+  await expect("signed-out reads comments",             "DENY",  () => get("threads/tComment/comments/c1", "unauth"));
+  await expect("student creates own comment",           "ALLOW", () => create("threads/tComment/comments/cNew", token(STUDENT), commentData({ authorId: STUDENT, authorName: "Ada" })));
+  await expect("student forges comment author",         "DENY",  () => create("threads/tComment/comments/cForge", token(STUDENT), commentData({ authorId: ADMIN, authorName: "Chidi" })));
+  await expect("student creates invalid role comment",  "DENY",  () => create("threads/tComment/comments/cBadRole", token(STUDENT), commentData({ authorId: STUDENT, authorName: "Ada", role: "admin" })));
+  await expect("student likes a comment",               "ALLOW", () => update("threads/tComment/comments/c1", token(STUDENT), commentData({ likes: [STUDENT] })));
+  await expect("student rewrites comment text",         "DENY",  () => update("threads/tComment/comments/cEdit", token(STUDENT), commentData({ content: "Edited" })));
+  await expect("author deletes own comment",            "ALLOW", () => del("threads/tComment/comments/cOwn", token(STUDENT)));
+  await expect("student deletes another comment",       "DENY",  () => del("threads/tComment/comments/cEdit", token(STUDENT)));
+  await expect("admin deletes any comment",             "ALLOW", () => del("threads/tComment/comments/cAdminDelete", token(ADMIN)));
 
   console.log("\n── unknown collections are denied by default ───────────────");
   await expect("write to an unlisted collection",       "DENY",  () => create("secrets/s1", token(ADMIN), { a: "b" }));

@@ -16,7 +16,6 @@ dist
 # Firebase emulator artifacts (npm run test:rules / npm run emulator)
 *-debug.log
 .firebase/
-firebase.test.json
 
 # Local Claude Code session config (per-developer, not shared)
 .claude/

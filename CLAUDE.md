@@ -29,7 +29,7 @@ npm start        # node server.js — serves dist/ + /api/* for production
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict — currently zero errors, keep it that way
-npm run test:rules  # boots the Firestore emulator, runs 34 rules assertions, tears down
+npm run test:rules  # boots the Firestore emulator, runs 48 rules assertions, tears down
 npm run emulator    # leaves the emulator running, for iterating on firestore.rules
 ```
 
@@ -51,15 +51,23 @@ Everything worth taking from `science-repository/` has been reimplemented rather
 copied (rules, server, Bookmarks, PDF export), so treat it as read-only history. Its
 byte-identical twin `science-repository-temp/` was deleted on 6 Sep 2026.
 
-`dist/` is still tracked by git even though `.gitignore` now lists it — run
-`git rm -r --cached dist` to untrack it.
+`dist/` and `.DS_Store` are ignored and untracked. Regenerate build output with
+`npm run build`; do not commit it.
 
 ## Architecture
 
 - **React 18 + TypeScript + Vite 6 + Tailwind 4.** Firebase Auth + Cloud Firestore.
-- **`src/app/App.tsx` is ~2,600 lines and contains every screen.** Views are plain
-  functions in one file, switched by a `view` string in `MainApp` — there is no
-  router. Expect to navigate it by `grep`, not by file.
+- `src/app/App.tsx` — tiny provider wrapper.
+- `src/app/MainApp.tsx` — authenticated app shell, mobile drawer, loading state, and
+  view routing. There is no router library; views still switch on the `View` union.
+- `src/app/features/` — screen-level feature modules: auth, library, quiz, forum,
+  upload, bookmarks, trends, repository, and admin.
+- `src/app/components/` — shared reusable UI already used by the app: layout/sidebar
+  and paper card/viewer components.
+- `src/app/types.ts` — shared domain types.
+- `src/app/data/samplePapers.ts` — bundled sample papers for the Admin seed button.
+- `src/app/services/` — Firestore-facing helpers and paper reconstruction.
+- `src/app/utils/` — small UI helpers (`cn`, department colours, frequency badges).
 - `src/app/lib/firebase.ts` — Firebase init. Note the named database:
   `getFirestore(app, "ai-studio-6e4f1bfa-e270-4433-8911-181211d11793")`.
 - `src/app/lib/AuthContext.tsx` — `user` (Firebase) + `profile` (Firestore `users` doc).
@@ -69,37 +77,29 @@ byte-identical twin `science-repository-temp/` was deleted on 6 Sep 2026.
   adapter, so **change an endpoint here and both get it** — never add a handler to only
   one of them; that is what produced the OCR field-name bug.
 - `server.js` — dependency-free production server: `dist/`, the API routes, SPA fallback.
-- `src/app/components/ui/` — 46 shadcn components, imported **zero** times. Ignore them.
 
-**Firestore collections:** `users`, `questions`, `threads`.
+**Firestore collections:** `users`, `questions`, `threads`, and
+`threads/{threadId}/comments`.
 Questions are stored flat, one document per question, and reassembled into papers
 client-side by `reconstructPQFiles`. Its field names
 (`questionText`, `solutionText`, …) differ from the in-memory `PQQuestion` type
 (`text`, `solution`, …) — match the DB names when writing, the type when reading.
+Forum replies are subcollection documents; legacy embedded `comments` arrays are still
+displayed read-only as a migration fallback.
 
 ## Traps — read before editing
 
-These have already caused real bugs. `App.tsx` has changed a lot — **treat any line
-number here as stale and re-grep.**
+These have already caused real bugs. Treat old line numbers as stale and re-grep.
 
-1. **`ALL_PQ_FILES` means two different things.** There is a module-level constant of
-   that name (the bundled sample papers, near the top of the file), and most screens
-   shadow it with `const ALL_PQ_FILES = allPqFilesList;` — the live Firestore list
-   passed down from `MainApp`. **Every screen that shows papers now shadows it** —
-   `LibraryView`, `QuizView`, `TrendsView`, `RepositoryView`, `BookmarksView` and
-   `ForumView`. The module constant survives only as input to the Admin Panel's
-   "Seed demo data" button.
+1. **Live papers are passed through `allPqFilesList`.** Screens that show papers should
+   accept that prop and derive local `pqFiles` from it. Library, Trends and Forum each
+   silently fell back to bundled mock data at some point because the prop was passed
+   but never declared; `strict` + `noUnusedParameters` now catches that class of bug.
 
-   If you add a screen that shows papers, declare the `allPqFilesList` prop and shadow
-   it the same way. Library, Trends and Forum each silently fell back to the mock at
-   some point because the prop was passed but never declared — and with `strict` +
-   `noUnusedParameters` now on, `npm run typecheck` catches exactly that.
-
-2. **Guard `.find()` on the paper list.** `TrendsView` used to do
-   `ALL_PQ_FILES.find(p => p.id === selPQ)!` against a hardcoded id, which crashed the
-   moment it saw real data. It now selects the first available paper, re-selects via
-   `useEffect` when the list changes, and renders an empty state. `QuizView` does the
-   same. Any new screen that selects a paper by id needs all three.
+2. **Guard `.find()` on the paper list.** `TrendsView` used to do a non-null assertion
+   against a hardcoded id, which crashed the moment it saw real data. Screens that
+   select a paper by id should choose a valid first paper when the list changes and
+   render an empty state when no papers exist.
 
 3. **A static deploy has no `/api/*`.** `vite build` emits static files only, so
    deploying `dist/` alone silently breaks OCR, AI grading, text cleanup and quiz
@@ -115,16 +115,16 @@ number here as stale and re-grep.**
    `/api/grade`, `/api/clean-text`, `/api/generate-quizzes` — have not been verified
    against a real key either. Check the payload shapes before trusting them.
 
-5. **The type check does not cover the Firestore boundary.** `npm run typecheck` is
-   strict and clean, so a wrong prop or unused symbol is caught now. But: `App.tsx` writes `type: "mcq"` into
-   Firestore even though `PQQuestion["type"]` has no such member. The object is built
-   inside `.map((item: any) => …)` and handed to `addDoc`, so it is never checked.
-   **Anything written to or read from Firestore is effectively untyped** — verify
-   those shapes by reading `reconstructPQFiles`, not by trusting the compiler.
+5. **The type check only partly covers the Firestore boundary.** `npm run typecheck`
+   is strict and clean, so a wrong prop or unused symbol is caught now. But most
+   Firestore rows are still assembled from `any` objects and handed to `addDoc`.
+   **Anything written to or read from Firestore needs shape checks in code and rules** —
+   verify those shapes by reading `reconstructPQFiles`, the upload/seed writers, and
+   `firestore.rules`, not by trusting the compiler alone.
 
 6. **Roles are still decided in the browser until the rules are deployed.**
    `firestore.rules` exists at the repo root and closes this properly. It is
-   **verified** — `npm run test:rules` runs 34 assertions against the emulator and the
+   **verified** — `npm run test:rules` runs 48 assertions against the emulator and the
    suite is sabotage-checked, so it genuinely fails when a rule regresses. But it has
    **not been deployed**: until someone runs `firebase deploy --only firestore:rules`
    the database is open and any role check in `src/` is decoration, not security.
@@ -152,14 +152,12 @@ number here as stale and re-grep.**
 
 If asked whether a feature "works", check rather than trusting the report:
 
-- **"Real-time" forum** — uses `getDocs` + manual refetch. No `onSnapshot` anywhere.
-- **Forum attachments** — the paperclip selects a file that is never uploaded. Firebase
-  Storage is not used anywhere in the app.
-- **Trend analysis across years** — *partly fixed 6 Sep 2026.* `TrendsView` now counts
-  topic occurrences across every paper in the repository, and the Library's
-  "Sessions Covered" tile is a real count. But the stored `frequency` field still
-  exists, still defaults to `5` on upload, and is still what `PQCard` and `PQViewer`
-  display — so two different numbers are shown for the same idea. Pick one.
+- ~~**"Real-time" forum**~~ — fixed 8 Sep 2026: forum threads and selected-thread
+  comments use `onSnapshot`.
+- ~~**Forum attachments**~~ — removed 8 Sep 2026 because Firebase Storage is not
+  configured.
+- ~~**Trend analysis across years**~~ — fixed 8 Sep 2026: Trends, paper cards and paper
+  detail all display computed topic counts from the approved question set.
 - ~~**Bookmarks** — no screen to read them back~~ — fixed 6 Sep 2026, `BookmarksView`.
 - **JSON/CSV upload** — doesn't exist; upload is image/PDF + OCR only.
 - ~~**PDF export** — emitted `text/plain`~~ — fixed 6 Sep 2026, real jsPDF output.
@@ -169,19 +167,22 @@ If asked whether a feature "works", check rather than trusting the report:
 
 ## Conventions
 
-- Match the existing style in `App.tsx`: section banner comments
-  (`// ─── QUIZ VIEW ───`), the local `cn()` helper defined near the top, Tailwind
-  utility classes inline, brand colours as literals — navy `#0F2340`,
-  amber `#E8A020`, page background `#F7F8FA`.
+- Put screen-level work under `src/app/features/<feature>/`.
+- Put shared, already-used UI under `src/app/components/<domain>/`.
+- Put Firestore/data-shape helpers under `src/app/services/`; keep raw collection
+  writes easy to grep.
+- Put tiny presentation helpers under `src/app/utils/`.
+- Keep Tailwind utility classes inline and preserve the brand colours as literals —
+  navy `#0F2340`, amber `#E8A020`, page background `#F7F8FA`.
 - Fonts are Outfit / Playfair Display / JetBrains Mono, loaded in `src/styles/fonts.css`.
 - Icons come from `lucide-react`.
-- Keep new screens as functions in `App.tsx` unless the task is explicitly to split
-  the file — a partial extraction would leave the codebase in two idioms at once.
+- Prefer focused files over a new framework. There is no routing/state framework, and
+  adding one just for neatness would be a larger product change than this app needs.
 
 ## Working agreements
 
-- **Verify line references before citing them.** This file and `TODO.md` cite
-  specific lines; `App.tsx` is one large file and they shift on every edit.
+- **Verify line references before citing them.** The app is split now, but files still
+  move; use `rg` and fresh line numbers.
 - Log completed work in `CHANGELOG.md` under `[Unreleased]`, and tick the matching
   item in `TODO.md`.
 - Touching `firestore.rules` means running `npm run test:rules`. It is fast (~15s) and

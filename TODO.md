@@ -3,13 +3,15 @@
 Working checklist from the codebase review of 6 Sep 2026.
 Full write-up: [Where PastQ-Hub Stands](https://claude.ai/code/artifact/0b02e3a5-2f44-4e1a-83e6-a14bfe35e780)
 
-**P0, P1 and P2 are complete** except for two things only you can do: deploying the
-Firestore rules (now emulator-verified, 34/34), and deciding on the shadcn component
-library. Details in
+**P0, P1, P2 and P3 code items are complete** except for two things only you can do:
+promoting the first admin and deploying the Firestore rules (now emulator-verified,
+48/48). The remaining defence items are product/data decisions. Details in
 [CHANGELOG.md](CHANGELOG.md).
 
-`src/app/App.tsx` has changed substantially since the review, so **any line number in
-this file is stale — re-grep rather than trusting it.**
+The reviewed app monolith has been split into `src/app/MainApp.tsx`,
+`src/app/features/`, `src/app/components/`, `src/app/services/`, `src/app/utils/`,
+`src/app/data/`, and `src/app/types.ts`, so **any old line number in `App.tsx` is stale
+— re-grep rather than trusting it.**
 
 Guardrails now in place: `npm run typecheck` passes under `strict`, `noUnusedLocals`
 and `noUnusedParameters` with zero errors. Run it before you commit.
@@ -66,7 +68,7 @@ Turns the separate working parts into one working system.
         `admin` from `admin@oau.edu` or `lecturer` from the email string.
 
   - [x] **Rules verified against the Firestore emulator.** `npm run test:rules` starts
-        the emulator, runs 34 assertions covering every collection and every role, and
+        the emulator, runs 48 assertions covering every collection and every role, and
         shuts down — one command, exit code 0 on pass. The rules **compile** (the
         emulator rejects a malformed file at load) and behave as intended. The suite
         was itself validated by sabotage: reintroducing the self-registration hole made
@@ -91,9 +93,8 @@ Turns the separate working parts into one working system.
         screen is admin-only, so there is no bootstrap path once the rules are live.
         Chicken-and-egg: do this *before* deploying the rules, or you will lock
         yourself out.
-  - [ ] `UploadView` sends `createdBy: userProfile?.id || "anonymous"`. The rules require
-        `createdBy == request.auth.uid`, so any profile missing `id` will be denied.
-        Every profile the app creates sets `id`, but older rows may not have it.
+  - [x] `UploadView` now sends `createdBy: auth.currentUser.uid`, so older profile rows
+        missing `id` no longer cause lecturer submissions to be denied by the rules.
 
 ---
 
@@ -116,9 +117,9 @@ Turns the separate working parts into one working system.
 - [x] **6. Compute topic frequency for real** — done, pulled forward with item 1
   - `TrendsView` now counts how many times each topic is actually asked across every
     paper in the repository, instead of reading the stored `frequency` field.
-  - The stored `frequency` field is still written (and still defaults to `5` on
-    upload) and is still what `PQCard`/`PQViewer` display. Either migrate those to the
-    computed count too, or drop the field. Leaving both is the current inconsistency.
+  - `PQCard`/`PQViewer` now display the same computed count. The stored `frequency`
+    field is still written as backwards-compatible data, but it is no longer the source
+    of truth for displayed frequency.
   - Note `freqMeta` thresholds (`≥10` Very High, `≥7` High) were written for a
     25-year archive. With 4 papers every topic lands on "Moderate", which is honest
     but sparse — consider scaling thresholds to the dataset.
@@ -158,9 +159,8 @@ Turns the separate working parts into one working system.
     and may be useful for the report. It is not built, installed or typechecked, so it
     costs nothing. Delete with `rm -rf science-repository` whenever you want.
   - `dist/` added to `.gitignore`, along with `.env*` and `.DS_Store`.
-  - [ ] **Still tracked:** `.gitignore` does not untrack what git already follows. Run
-        `git rm -r --cached dist .DS_Store` before your next commit. Left for you — it
-        stages an index change.
+  - [x] `.DS_Store` untracked with `git rm --cached .DS_Store`; `dist/` was already not
+        tracked in this checkout.
 - [x] **11. Add TypeScript checking** — done, and stricter than planned.
   - `tsconfig.json` added; `typescript`, `@types/react`, `@types/react-dom` added as
     devDependencies; `npm run typecheck` added.
@@ -170,10 +170,11 @@ Turns the separate working parts into one working system.
     `loading` bindings, an unused `label`), plus two unused parameters the flags then
     surfaced: `LibraryView`'s `onStartQuiz` (declared, passed, never used) and
     `detectMeta`'s `content`.
-  - Note what a type check still cannot catch: `type: "mcq"` is written to Firestore
-    though `PQQuestion["type"]` has no such member, because the object is built inside
-    `.map((item: any) => …)`. Anything crossing the Firestore boundary is untyped.
-- [~] **12. Drop unused packages** — the unambiguous half is done.
+  - Note what a type check still cannot catch: Firestore is still schemaless at
+    runtime, so field-shape regressions still need explicit code review and rules
+    tests. Shared question/user/thread record types now cover the main app boundary,
+    and the generated-MCQ `type: "mcq"` mismatch is fixed.
+- [x] **12. Drop unused packages** — done.
   - **14 removed** — nothing in the repo referenced them at all: `@mui/material`,
     `@mui/icons-material`, `@emotion/react`, `@emotion/styled`, `@popperjs/core`,
     `react-popper`, `canvas-confetti`, `date-fns`, `motion`, `react-dnd`,
@@ -182,14 +183,18 @@ Turns the separate working parts into one working system.
     production server all still pass.
   - `tw-animate-css` was on the same list but is **kept** — it is imported from
     `src/styles/tailwind.css`, which a JavaScript-only scan misses.
-  - [ ] **Your call: the remaining 39.** They are used *only* by the 46 shadcn
-        components in `src/app/components/ui/`, which the app imports **zero** times.
-        Removing the packages means deleting that folder too (otherwise `npm run
-        typecheck` fails on missing modules). Worth knowing: they do not affect the
-        bundle at all — Vite tree-shakes unimported modules — so this is purely about
-        install size and an honest dependency list, weighed against losing a component
-        library you might want later. It would also clash stylistically: the app uses
-        inline Tailwind throughout, not shadcn components.
+  - **Decision made:** the remaining shadcn stack was removed. The 46 unused components
+        under `src/app/components/ui/` were deleted, and the 39 packages used only by
+        that folder were removed from `package.json`/`package-lock.json`.
+  - `react` and `react-dom` are now explicit runtime dependencies instead of optional
+        peers, which the shadcn dependency tree had previously masked.
+- [x] **13. Split the app into a readable folder structure** — done.
+  - `src/app/App.tsx` is now only the provider wrapper.
+  - `src/app/MainApp.tsx` owns the authenticated shell, sidebar/mobile drawer and view
+    routing.
+  - Screen-level code lives in `src/app/features/`; reused UI lives in
+    `src/app/components/`; shared paper data, Firestore helpers, small presentation
+    helpers and domain types live in `data/`, `services/`, `utils/` and `types.ts`.
 
 ---
 
@@ -215,20 +220,16 @@ Turns the separate working parts into one working system.
       database (Admin reset, or un-approving everything) left stale papers on screen.
       Found while fixing the loading state; now rebuilds unconditionally.
 
-Still open:
+Closed in cleanup pass:
 
-- [ ] Thread `views` are displayed but never incremented.
-- [ ] Forum comments are an array inside the thread doc, updated read-modify-write.
-      Concurrent comments overwrite each other, and threads are capped by Firestore's
-      1 MB document limit. Needs a subcollection — a data-model change, not a patch.
-- [ ] Forum attachments are selected but never uploaded — Firebase Storage is not used
-      anywhere. Either wire up Storage or remove the paperclip control, which currently
-      implies something that does not happen.
-- [ ] Forum uses `getDocs` + manual refetch, not `onSnapshot` — the Implementation
-      Summary's "real-time updates" claim is still not implemented.
-- [ ] `jspdf` pulls html2canvas and dompurify into the build (main bundle 966 KB →
-      1,370 KB, 387 KB gzipped). They are code-split, but an `import()` inside
-      `downloadPaper` would keep them out of the initial load entirely.
+- [x] Thread `views` are incremented once when a signed-in user opens a thread.
+- [x] Forum comments now live in `threads/{threadId}/comments/{commentId}` and are
+      written with a batch alongside a `replyCount` increment. Legacy embedded comments
+      are still displayed read-only as a migration fallback.
+- [x] Forum attachment controls were removed because Firebase Storage is not configured.
+- [x] Forum threads and selected-thread comments now use `onSnapshot`.
+- [x] `jspdf` is dynamically imported inside `downloadPaper`, keeping PDF-only
+      dependencies out of the initial app chunk.
 
 ---
 

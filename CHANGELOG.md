@@ -9,6 +9,39 @@ Open work lives in [TODO.md](TODO.md).
 
 ## [Unreleased]
 
+### Cleanup — 2026-09-08
+
+- **App source split into a feature tree.** The former monolithic `src/app/App.tsx`
+  now delegates to a focused `MainApp` shell, feature screens under
+  `src/app/features/`, shared UI under `src/app/components/`, and shared
+  data/services/utils/types modules. Firestore question/user/thread rows now have
+  explicit shared record types at the app boundary.
+- **Cursor affordances normalized.** Native interactive controls now get pointer
+  cursors when enabled and not-allowed cursors when disabled; custom click targets keep
+  their explicit cursor styles.
+- **Forum data model cleaned up.** Threads and selected-thread replies now stream with
+  `onSnapshot`; replies are stored under
+  `threads/{threadId}/comments/{commentId}` instead of inside the thread document; new
+  replies are batched with a `replyCount` increment; thread views increment when a
+  thread is opened.
+- **Forum attachment controls removed.** Firebase Storage is not configured, so the
+  image/PDF buttons were removed rather than implying an upload that never happens.
+- **Upload attribution now uses Auth UID.** `UploadView` writes
+  `createdBy: auth.currentUser.uid`, matching `firestore.rules` even for older profile
+  rows missing an `id` field.
+- **Displayed topic frequency has one source of truth.** Reconstructed questions now use
+  computed topic counts, matching Trends, instead of showing the stale stored
+  `frequency` fallback on cards and paper detail.
+- **shadcn stack removed.** Deleted the 46 unused components under
+  `src/app/components/ui/` and removed the 39 packages used only by that folder.
+  `react` and `react-dom` are now explicit runtime dependencies.
+- **PDF export code-split.** `jspdf` is dynamically imported inside `downloadPaper`, so
+  PDF-only dependencies no longer sit in the initial app chunk.
+- **Rules tests restored and expanded.** Added the missing `firebase.test.json`; the
+  emulator suite now covers forum comment subcollections, view/reply counters, and
+  tighter thread update permissions: **48/48 passing**.
+- **`.DS_Store` untracked.** The ignore rule now applies to the local OS file.
+
 P0 items 1–3 from [TODO.md](TODO.md), plus item 6 pulled forward.
 
 ### Fixed
@@ -153,15 +186,18 @@ P0 items 1–3 from [TODO.md](TODO.md), plus item 6 pulled forward.
 
 - **Firestore security rules are now verified, not hand-traced.** Added
   `rules-test.mjs` and `npm run test:rules`, which starts the Firestore emulator,
-  runs **34 assertions**, and tears it down in one command (exit 0 on pass,
+  runs **48 assertions**, and tears it down in one command (exit 0 on pass,
   1 on failure). Coverage:
   - `users` — self-read vs. cross-read, admin read-all, self-registration as
     student/lecturer/admin, self-promotion, promoting others, bookmark writes,
     and the Admin Panel's Manage Roles path.
   - `questions` — approved vs. pending visibility per role, lecturer submission,
     self-approval, author forgery, student submission, admin seeding and approval.
-  - `threads` — read gating, authorship forgery, likes/comments, the Report flow,
-    title hijacking, authorship theft, and delete permissions per role.
+  - `threads` — read gating, authorship forgery, likes, view/reply counters, the
+    Report flow, title/content hijacking, authorship theft, and delete permissions per
+    role.
+  - `threads/{threadId}/comments` — comment reads, author forgery, invalid roles,
+    likes, immutable text, and delete permissions per role.
   - Unlisted collections are denied by default.
 
 - **The suite was validated by sabotage.** Reintroducing the privilege-escalation

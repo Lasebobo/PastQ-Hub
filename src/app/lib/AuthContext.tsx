@@ -2,8 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
-
-export type Role = "student" | "lecturer" | "admin";
+import type { Role } from '../types';
 
 export interface UserProfile {
   id: string;

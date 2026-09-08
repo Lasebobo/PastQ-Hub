@@ -83,21 +83,57 @@ service cloud.firestore {
 
     // ── threads (forum) ──────────────────────────────────────────────────────
     match /threads/{threadId} {
+      function changesOnly(keys) {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+      }
+
       allow read: if signedIn();
 
       allow create: if signedIn()
                     && request.resource.data.authorId == request.auth.uid;
 
-      // Any signed-in user may update a thread, because replying and liking both
-      // rewrite fields on the thread document itself. The author and title cannot
-      // be rewritten, so a thread cannot be hijacked.
+      // Thread updates are intentionally narrow: replies live in a subcollection, so
+      // regular users only need likes, reports, view increments and reply counts.
+      allow update: if isAdmin();
       allow update: if signedIn()
-                    && request.resource.data.authorId == resource.data.authorId
-                    && request.resource.data.title == resource.data.title;
+                    && (
+                      (changesOnly(['likes']) && request.resource.data.likes is list)
+                      || (changesOnly(['flagged', 'flagReason', 'flaggedBy', 'flaggedAt'])
+                          && request.resource.data.flagged == true)
+                      || (changesOnly(['views'])
+                          && request.resource.data.views == resource.data.get('views', 0) + 1)
+                      || (changesOnly(['replyCount'])
+                          && request.resource.data.replyCount == resource.data.get('replyCount', 0) + 1)
+                    );
 
       // Authors can delete their own threads; admins can delete any.
       allow delete: if isAdmin()
                     || (signedIn() && resource.data.authorId == request.auth.uid);
+
+      match /comments/{commentId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+                      && exists(/databases/$(database)/documents/threads/$(threadId))
+                      && request.resource.data.authorId == request.auth.uid
+                      && request.resource.data.role in ['Admin', 'Lecturer', 'Student']
+                      && request.resource.data.likes is list
+                      && request.resource.data.likes.size() == 0;
+
+        // Comment text and ownership are immutable from the browser; users may only
+        // update the likes array.
+        allow update: if signedIn()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+                      && request.resource.data.authorId == resource.data.authorId
+                      && request.resource.data.authorName == resource.data.authorName
+                      && request.resource.data.role == resource.data.role
+                      && request.resource.data.content == resource.data.content
+                      && request.resource.data.createdAt == resource.data.createdAt
+                      && request.resource.data.likes is list;
+
+        allow delete: if isAdmin()
+                      || (signedIn() && resource.data.authorId == request.auth.uid);
+      }
     }
 
     // Anything not matched above is denied.
