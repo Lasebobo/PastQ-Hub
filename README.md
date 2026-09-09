@@ -60,6 +60,10 @@ Cloud Firestore · Google Gemini · jsPDF
 Verifying it works? Follow [DEMO-SCRIPT.md](DEMO-SCRIPT.md) — an ordered click-through
 of every feature, about 30 minutes, needs nothing set up first.
 
+**Own the Firebase project or the Vercel account?**
+[ADMIN-HANDOVER.md](ADMIN-HANDOVER.md) is everything you need to do, in order —
+about 45 minutes. Start there.
+
 **If you have Firebase console access, read [FIREBASE-SETUP.md](FIREBASE-SETUP.md)** —
 it is the ordered checklist for making this safe to share. Two things matter most:
 

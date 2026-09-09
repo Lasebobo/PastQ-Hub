@@ -3,6 +3,9 @@
 **For whoever has access to the Firebase project.** Everything here needs console or
 CLI permissions, so it can't be done from the code.
 
+> Doing this *and* the Vercel setup? [ADMIN-HANDOVER.md](ADMIN-HANDOVER.md) is both,
+> in dependency order, as one ~45-minute path. This file is the Firebase detail.
+
 | | |
 | --- | --- |
 | **Project ID** | `gen-lang-client-0333512564` |
@@ -120,19 +123,23 @@ Console → **Authentication** → **Sign-in method**. Both should be enabled:
 - Email/Password
 - Google
 
-### Deploy on a Node host, not static hosting
+### Deploy somewhere with a runtime, not static hosting
 
 `npm run build` produces static files only. The AI endpoints (`/api/ocr`,
-`/api/grade`, `/api/clean-text`, `/api/generate-quizzes`) are served by `server.js`:
+`/api/grade`, `/api/clean-text`, `/api/generate-quizzes`) need something to run them.
+Two supported targets:
 
-```bash
-npm run build
-npm start          # serves dist/ and the API together
-```
+- **Vercel** — already configured; see [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md).
+- **Any Node host** (Cloud Run, Render, Railway, a VPS):
+
+  ```bash
+  npm run build
+  npm start          # server.js serves dist/ and the API together
+  ```
 
 Deploying `dist/` alone to static hosting makes OCR, AI grading, OCR cleanup and quiz
-generation return 404. **Firebase Hosting alone will not work** for this reason —
-use a Node host (Cloud Run, Render, Railway) or Firebase Hosting with Cloud Functions.
+generation return 404 while the site looks like it loaded fine. **Firebase Hosting and
+GitHub Pages will not work** on their own for this reason.
 
 ### Set the Gemini key
 
