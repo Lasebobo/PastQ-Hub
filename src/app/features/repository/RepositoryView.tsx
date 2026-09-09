@@ -97,28 +97,33 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
           const semester = qData.semester || "First";
           const questionText = qData.questionText || "";
           
-          const mcqQuery = query(
-            collection(db, 'questions'), 
-            where('courseCode', '==', courseCode),
-            where('session', '==', session),
-            where('type', '==', 'mcq')
-          );
-          const mcqSnap = await getDocs(mcqQuery);
-          if (mcqSnap.empty) {
-            console.log(`Generating automated MCQs for ${courseCode} (${session})...`);
-            fetch("/api/generate-quizzes", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                courseCode,
-                session,
-                semester,
-                paperText: questionText
-              })
-            }).then(res => res.json())
-              .then(async (data: { quizzes?: GeneratedQuizRecord[] }) => {
+          const paperKey = `${courseCode}_${session}`;
+          // Use window-level Set to prevent concurrent generation during bulk approve
+          const generatingKey = `generating_mcq_${paperKey}`;
+          
+          if (!(window as any)[generatingKey]) {
+            (window as any)[generatingKey] = true;
+            
+            const mcqQuery = query(
+              collection(db, 'questions'), 
+              where('courseCode', '==', courseCode),
+              where('session', '==', session),
+              where('type', '==', 'mcq')
+            );
+            
+            try {
+              const mcqSnap = await getDocs(mcqQuery);
+              if (mcqSnap.empty) {
+                console.log(`Generating automated MCQs for ${courseCode} (${session})...`);
+                const res = await fetch("/api/generate-quizzes", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ courseCode, session, semester, paperText: questionText })
+                });
+                const data = await res.json();
+                
                 if (data.quizzes && data.quizzes.length > 0) {
-                  const toInsert: QuestionWriteRecord[] = data.quizzes.map(item => {
+                  const toInsert: QuestionWriteRecord[] = data.quizzes.map((item: any) => {
                     const row: QuestionWriteRecord = {
                       courseCode: courseCode.toUpperCase(),
                       courseTitle: courseCode.toUpperCase(),
@@ -146,9 +151,13 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                   });
                   await Promise.all(toInsert.map(item => addDoc(collection(db, 'questions'), item)));
                   console.log(`Auto-generated and saved ${toInsert.length} MCQs for ${courseCode}.`);
-                  fetchQuestions();
                 }
-              }).catch(err => console.error("Auto quiz generation failed:", err));
+              }
+            } catch (err) {
+              console.error("Auto quiz generation failed:", err);
+            } finally {
+              delete (window as any)[generatingKey];
+            }
           }
         }
       }
@@ -156,23 +165,6 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
       fetchQuestions();
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const [approvingAll, setApprovingAll] = useState(false);
-
-  const handleApproveAll = async () => {
-    const pending = pendingQs.filter(p => !statuses[p.id]);
-    if (pending.length === 0) return;
-    if (!confirm(`Are you sure you want to approve all ${pending.length} pending questions?`)) return;
-    
-    setApprovingAll(true);
-    try {
-      for (const item of pending) {
-        await handleAction(item.id, "approved");
-      }
-    } finally {
-      setApprovingAll(false);
     }
   };
 
@@ -227,48 +219,68 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
           <div className="p-5 border-b border-gray-50 flex items-center justify-between">
             <h2 className="font-bold text-[#0F2340] text-sm">Pending Approval ({pendingQs.filter(p => !statuses[p.id]).length})</h2>
-            {pendingQs.filter(p => !statuses[p.id]).length > 0 && (
-              <button 
-                onClick={handleApproveAll}
-                disabled={approvingAll}
-                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-semibold flex items-center gap-2 disabled:opacity-50"
-              >
-                {approvingAll && <Loader2 size={12} className="animate-spin" />}
-                {approvingAll ? "Approving..." : "Approve All"}
-              </button>
-            )}
           </div>
           <div className="divide-y divide-gray-50">
-            {pendingQs.map(item => {
-              const s = statuses[item.id];
-              const courseCode = item.courseCode || "General";
+            {Object.entries(
+              pendingQs.reduce((acc, q) => {
+                const key = `${q.courseCode || "General"} · ${q.session || "Unknown session"} · ${q.semester || "First"} Semester`;
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(q);
+                return acc;
+              }, {} as Record<string, QuestionRecord[]>)
+            ).map(([groupKey, groupQs]) => {
+              const pendingInGroup = groupQs.filter(q => !statuses[q.id]);
+              
               return (
-                <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0">
-                      {courseCode.split(" ")[0]}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-gray-800">{courseCode} Question {item.number || "1"} ({item.session || "Unknown session"})</p>
-                      <p className="text-xs text-gray-400">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
-                      <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.questionText || ""}</ReactMarkdown>
-                      </div>
-                    </div>
+                <div key={groupKey} className="p-5 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-50">
+                    <h3 className="font-bold text-[#0F2340] text-sm">{groupKey} ({groupQs.length} questions)</h3>
+                    {pendingInGroup.length > 0 && (
+                      <button 
+                        onClick={() => {
+                          pendingInGroup.forEach(q => handleAction(q.id, "approved"));
+                        }}
+                        className="px-3 py-1.5 text-xs bg-[#0F2340] text-white rounded-xl hover:bg-[#1a3a6b] font-semibold flex items-center gap-1"
+                      >
+                        <Check size={14} /> Approve All {pendingInGroup.length}
+                      </button>
+                    )}
                   </div>
-                  {s ? (
-                    <span className={cn("text-xs font-bold px-2.5 py-1 rounded-xl shrink-0 self-start md:self-center",
-                      s === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600")}>
-                      {s === "approved" ? "Approved" : "Rejected"}
-                    </span>
-                  ) : (
-                    <div className="flex gap-2 shrink-0 self-start md:self-center">
-                      <button onClick={() => handleAction(item.id, "rejected")}
-                        className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-xl hover:bg-red-50 font-semibold">Reject</button>
-                      <button onClick={() => handleAction(item.id, "approved")}
-                        className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-semibold">Approve</button>
-                    </div>
-                  )}
+                  <div className="space-y-4">
+                    {groupQs.map(item => {
+                      const s = statuses[item.id];
+                      const courseCode = item.courseCode || "General";
+                      return (
+                        <div key={item.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0">
+                              {courseCode.split(" ")[0]}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-800">{courseCode} Question {item.number || "1"} ({item.session || "Unknown session"})</p>
+                              <p className="text-xs text-gray-400">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
+                              <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
+                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.questionText || ""}</ReactMarkdown>
+                              </div>
+                            </div>
+                          </div>
+                          {s ? (
+                            <span className={cn("text-xs font-bold px-2.5 py-1 rounded-xl shrink-0 self-start md:self-center",
+                              s === "approved" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600")}>
+                              {s === "approved" ? "Approved" : "Rejected"}
+                            </span>
+                          ) : (
+                            <div className="flex gap-2 shrink-0 self-start md:self-center">
+                              <button onClick={() => handleAction(item.id, "rejected")}
+                                className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-xl hover:bg-red-50 font-semibold">Reject</button>
+                              <button onClick={() => handleAction(item.id, "approved")}
+                                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-semibold">Approve</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
