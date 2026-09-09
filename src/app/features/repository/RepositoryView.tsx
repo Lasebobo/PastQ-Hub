@@ -159,6 +159,23 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
     }
   };
 
+  const [approvingAll, setApprovingAll] = useState(false);
+
+  const handleApproveAll = async () => {
+    const pending = pendingQs.filter(p => !statuses[p.id]);
+    if (pending.length === 0) return;
+    if (!confirm(`Are you sure you want to approve all ${pending.length} pending questions?`)) return;
+    
+    setApprovingAll(true);
+    try {
+      for (const item of pending) {
+        await handleAction(item.id, "approved");
+      }
+    } finally {
+      setApprovingAll(false);
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8 max-w-5xl">
       <div className="mb-6 flex items-start justify-between">
@@ -208,8 +225,18 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
 
         {/* Pending approval */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <div className="p-5 border-b border-gray-50">
+          <div className="p-5 border-b border-gray-50 flex items-center justify-between">
             <h2 className="font-bold text-[#0F2340] text-sm">Pending Approval ({pendingQs.filter(p => !statuses[p.id]).length})</h2>
+            {pendingQs.filter(p => !statuses[p.id]).length > 0 && (
+              <button 
+                onClick={handleApproveAll}
+                disabled={approvingAll}
+                className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-semibold flex items-center gap-2 disabled:opacity-50"
+              >
+                {approvingAll && <Loader2 size={12} className="animate-spin" />}
+                {approvingAll ? "Approving..." : "Approve All"}
+              </button>
+            )}
           </div>
           <div className="divide-y divide-gray-50">
             {pendingQs.map(item => {
