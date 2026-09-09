@@ -57,7 +57,7 @@ firebase deploy --only firestore:rules
 ```
 
 The rules are in `firestore.rules`. They have been tested against the Firestore
-emulator — 34 assertions covering every collection and role, run with
+emulator — 48 assertions covering every collection and role, run with
 `npm run test:rules`.
 
 ### What changes once they're live

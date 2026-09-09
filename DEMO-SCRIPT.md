@@ -155,18 +155,26 @@ questions show "Answer"; others show "Model Answer".
 3. Open it, post a reply, like the thread and the reply.
 4. **Reload.** Everything persisted.
 
-> The forum is **not** real-time — it refetches after you act. Two browsers side by
-> side will not update each other live. This is a known limitation, not a bug to
-> chase.
+### Check it's live *(new — 8 Sep)*
+
+5. Open the same thread in **two browser windows** side by side.
+6. Post a reply in one.
+
+**Expect:** it appears in the other **without a reload.** Threads and replies both
+stream now, so the reply count and views update live too.
+
+> This changed on 8 Sep. Replies moved into their own subcollection, so two people
+> replying at the same moment no longer overwrite each other — worth trying with a
+> teammate.
 
 ### Report a post
 
-5. On a thread, click **Report**. Enter a reason at the prompt.
-6. Go to **Admin Panel → Flagged Posts**.
+7. On a thread, click **Report**. Enter a reason at the prompt.
+8. Go to **Admin Panel → Flagged Posts**.
 
 **Expect:** the thread you reported, with its reason.
 
-7. Dismiss or remove it. **Reload** and confirm the action stuck.
+9. Dismiss or remove it. **Reload** and confirm the action stuck.
 
 ---
 
@@ -261,6 +269,7 @@ grep -c "admin123\|OAU_ADMIN_2024" dist/assets/*.js    # expect 0
 - [ ] Download produces a readable PDF
 - [ ] Quiz scores, times, and shows solutions
 - [ ] Forum thread, reply and like persist
+- [ ] Reply appears in a second window without reloading
 - [ ] Report reaches the Admin Panel
 - [ ] **Upload → approve → appears in Library**
 - [ ] Manage Roles works; self-demotion blocked
