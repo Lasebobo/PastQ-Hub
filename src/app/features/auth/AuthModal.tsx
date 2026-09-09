@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { AlertCircle, Eye, EyeOff, GraduationCap, Loader2 } from "lucide-react";
-import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+import { createUserWithEmailAndPassword, GoogleAuthProvider, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 import { auth, db } from "../../lib/firebase";
@@ -94,7 +94,8 @@ export function AuthModal() {
   };
 
   const googleAuth = async () => {
-    setLoading(true); setError("");
+    setError("");
+    setLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
@@ -110,8 +111,15 @@ export function AuthModal() {
         });
       }
     } catch (err: any) {
+      if (err.code === "auth/popup-blocked") {
+        // Fallback for mobile devices / aggressive popup blockers
+        signInWithRedirect(auth, googleProvider).catch(redirectErr => {
+          setError(redirectErr.message || "Google sign-in redirect failed.");
+          setLoading(false);
+        });
+        return; // Loading stays true while redirecting
+      }
       setError(err.message || "Google sign-in failed.");
-    } finally {
       setLoading(false);
     }
   };

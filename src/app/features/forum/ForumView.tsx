@@ -227,6 +227,21 @@ export function ForumView({ user, allPqFilesList }: { user: User; allPqFilesList
     }
   };
 
+  const shareThread = async () => {
+    if (!thread) return;
+    const text = `Check out this discussion: "${thread.title}"`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: thread.title, text, url: window.location.href });
+      } catch (err) {
+        // user cancelled or share failed
+      }
+    } else {
+      navigator.clipboard.writeText(`${text} - ${window.location.href}`);
+      alert("Link copied to clipboard!");
+    }
+  };
+
   if (selThread && thread) return (
     <div className="p-6 lg:p-8 max-w-3xl">
       <button onClick={() => setSelThread(null)} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#0F2340] mb-5 transition-colors">
@@ -255,7 +270,7 @@ export function ForumView({ user, allPqFilesList }: { user: User; allPqFilesList
               thread.rawLikes?.includes(auth.currentUser?.uid || "") ? "bg-red-50 text-red-500" : "text-gray-400 hover:bg-gray-50 hover:text-gray-600")}>
             <Heart size={14} fill={thread.rawLikes?.includes(auth.currentUser?.uid || "") ? "currentColor" : "none"} /> {thread.likes}
           </button>
-          <button className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-xl hover:bg-gray-50">
+          <button onClick={shareThread} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-xl hover:bg-gray-50">
             <Share2 size={14} /> Share
           </button>
         </div>

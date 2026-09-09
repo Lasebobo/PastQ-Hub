@@ -83,7 +83,6 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
 
   const submitTheory = async () => {
     if (!theoryInput.trim()) return;
-    setAnswers(p => ({ ...p, [q.id]: theoryInput }));
     setGradingLoading(true);
     try {
       const res = await fetch("/api/grade", {
@@ -106,6 +105,7 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
       setQuestionScores(p => ({ ...p, [q.id]: 0 }));
       setFeedbacks(p => ({ ...p, [q.id]: "Failed to grade theory answer." }));
     } finally {
+      setAnswers(p => ({ ...p, [q.id]: theoryInput }));
       setGradingLoading(false);
       if (immediate) setShowSol(true);
     }

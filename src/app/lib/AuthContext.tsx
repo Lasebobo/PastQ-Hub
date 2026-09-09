@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { User, onAuthStateChanged, signOut, getRedirectResult } from 'firebase/auth';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import type { Role } from '../types';
 
@@ -32,28 +32,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    let unsubscribeSnapshot: (() => void) | undefined;
+    
+    // Handle redirect result from Google Auth (mobile browsers / popup blockers)
+    getRedirectResult(auth).then(async (result) => {
+      if (result?.user) {
+        const u = result.user;
+        const userDocRef = doc(db, 'users', u.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (!userDoc.exists()) {
+          await setDoc(userDocRef, {
+            id: u.uid,
+            email: u.email || "",
+            name: u.displayName || "Google User",
+            role: "student",
+            bookmarkedQuestions: []
+          });
+        }
+      }
+    }).catch(err => {
+      console.error("Redirect auth error:", err);
+    });
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        try {
-          const docRef = doc(db, 'users', currentUser.uid);
-          const docSnap = await getDoc(docRef);
+        const docRef = doc(db, 'users', currentUser.uid);
+        unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
           if (docSnap.exists()) {
             setProfile(docSnap.data() as UserProfile);
           } else {
             setProfile(null);
           }
-        } catch (error) {
-          console.error("Error fetching user profile:", error);
+        }, (error) => {
+          console.error("Error fetching user profile snapshot:", error);
           setProfile(null);
-        }
+        });
       } else {
+        if (unsubscribeSnapshot) {
+          unsubscribeSnapshot();
+          unsubscribeSnapshot = undefined;
+        }
         setProfile(null);
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
+    };
   }, []);
 
   const logout = async () => {
