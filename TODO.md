@@ -244,3 +244,14 @@ deliberately:
 - **Solution source** — the brief requires each solution to state whether it came from a lecturer, a student, or online. Not recorded.
 - **Search history and usage records** — listed as a core feature. Not built.
 - **Twenty-five years of coverage** — promised by both the brief and the UI. Actual: 4 papers, 45 questions, 3 sessions.
+
+**Useful for two of these:** `science-repository/firebase-blueprint.json` is the
+original AI Studio schema, and it *did* define `questions.difficulty`, a `courses`
+collection with `level` and `semester`, plus `tags` and `explanation` fields. The
+design covered level selection and difficulty tagging; the implementation dropped
+them. That is a better answer at a defence than "we didn't consider it" — the schema
+exists, the fields were simply never populated.
+
+> Don't copy that file's `rules` block. It is the pre-hardening version: `users` allows
+> self-write (the privilege-escalation hole) and `questions` requires admin to write,
+> which would block lecturer uploads. `firestore.rules` at the repo root supersedes it.

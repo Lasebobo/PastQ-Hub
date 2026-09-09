@@ -93,6 +93,18 @@ were on the named database and not `(default)`.
 
 ## Step 4 — Before deploying the app publicly
 
+### Where the config lives
+
+The Firebase config is already wired into `src/app/lib/firebase.ts` — you do not need
+to copy it from anywhere. `science-repository/firebase-applet-config.json` holds the
+same values (that folder is dead code kept as history); the only field it carries that
+the app does not use is `oAuthClientId`, which the Firebase Web SDK resolves from
+`authDomain` on its own.
+
+Nothing in either file is a secret. A Firebase Web `apiKey` is a public project
+identifier that ships in every client bundle — it is not a credential, and access is
+controlled entirely by the Firestore rules below. That is why deploying them matters.
+
 ### Authorized domains (or Google sign-in breaks)
 
 Console → **Authentication** → **Settings** → **Authorized domains** → add your
