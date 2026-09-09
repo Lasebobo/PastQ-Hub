@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GraduationCap, Loader2, Menu } from "lucide-react";
 import { collection, getDocs, query, where } from "firebase/firestore";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { PQViewer, Sidebar } from "./components";
 import { AdminPanel, AuthModal, BookmarksView, ForumView, LibraryView, QuizView, RepositoryView, TrendsView, UploadView } from "./features";
@@ -92,35 +93,34 @@ export function MainApp() {
           <button onClick={() => setMobileOpen(true)} className="text-white/60 hover:text-white"><Menu size={20} /></button>
         </header>
 
-        <main className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none" }}>
-          {/* Until the first fetch resolves, an empty repository and a loading one look
-              identical — which read as "there are no papers" on every page load.
-              Only the screens that read the paper list wait for it. */}
-          {loadingQuestions && view !== "upload" && view !== "admin" && (
-            <div className="p-16 flex flex-col items-center justify-center gap-3">
-              <Loader2 className="w-6 h-6 text-[#0F2340] animate-spin" />
-              <p className="text-gray-400 text-sm">Loading past questions…</p>
-            </div>
-          )}
-
-          {!loadingQuestions && view === "library" && !selectedPQ && (
-            <LibraryView onOpenPQ={handleOpenPQ} user={currentUser} allPqFilesList={allPqFiles} />
-          )}
-          {!loadingQuestions && view === "library" && selectedPQ && (
-            <PQViewer pq={selectedPQ} onBack={() => setSelectedPQ(null)} onStartQuiz={handleStartQuiz} userProfile={profile} fetchQuestions={fetchQuestions} />
-          )}
-          {!loadingQuestions && view === "quiz" && <QuizView preloadPQ={quizPQ} allPqFilesList={allPqFiles} />}
-          {!loadingQuestions && view === "bookmarks" && (
-            <BookmarksView allPqFilesList={allPqFiles} userProfile={profile} onOpenPQ={handleOpenPQ} />
-          )}
-          {!loadingQuestions && view === "forum" && <ForumView user={currentUser} allPqFilesList={allPqFiles} />}
-          {!loadingQuestions && view === "trends" && <TrendsView allPqFilesList={allPqFiles} />}
-          {!loadingQuestions && view === "repository" && currentUser.role === "admin" && (
-            <RepositoryView onOpenPQ={handleOpenPQ} allPqFilesList={allPqFiles} fetchQuestions={fetchQuestions} />
-          )}
-          {/* These two do not read the paper list, so they need not wait for it. */}
-          {view === "upload" && currentUser.role !== "student" && <UploadView fetchQuestions={fetchQuestions} />}
-          {view === "admin" && currentUser.role === "admin" && <AdminPanel />}
+        <main className="flex-1 overflow-y-auto relative" style={{ scrollbarWidth: "none" }}>
+          <AnimatePresence mode="wait">
+            {loadingQuestions && view !== "upload" && view !== "admin" ? (
+              <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-16 flex flex-col items-center justify-center gap-3 h-full">
+                <Loader2 className="w-6 h-6 text-[#0F2340] animate-spin" />
+                <p className="text-gray-400 text-sm">Loading past questions…</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key={view === "library" && selectedPQ ? "pqviewer" : view}
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="min-h-full"
+              >
+                {view === "library" && !selectedPQ && <LibraryView onOpenPQ={handleOpenPQ} user={currentUser} allPqFilesList={allPqFiles} />}
+                {view === "library" && selectedPQ && <PQViewer pq={selectedPQ} onBack={() => setSelectedPQ(null)} onStartQuiz={handleStartQuiz} userProfile={profile} fetchQuestions={fetchQuestions} />}
+                {view === "quiz" && <QuizView preloadPQ={quizPQ} allPqFilesList={allPqFiles} />}
+                {view === "bookmarks" && <BookmarksView allPqFilesList={allPqFiles} userProfile={profile} onOpenPQ={handleOpenPQ} />}
+                {view === "forum" && <ForumView user={currentUser} allPqFilesList={allPqFiles} />}
+                {view === "trends" && <TrendsView allPqFilesList={allPqFiles} />}
+                {view === "repository" && currentUser.role === "admin" && <RepositoryView onOpenPQ={handleOpenPQ} allPqFilesList={allPqFiles} fetchQuestions={fetchQuestions} />}
+                {view === "upload" && currentUser.role !== "student" && <UploadView fetchQuestions={fetchQuestions} />}
+                {view === "admin" && currentUser.role === "admin" && <AdminPanel />}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
     </div>

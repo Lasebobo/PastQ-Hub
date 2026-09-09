@@ -19,3 +19,5 @@ dist
 
 # Local Claude Code session config (per-developer, not shared)
 .claude/
+.vercel
+.env*

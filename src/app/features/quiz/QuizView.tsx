@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Award, Check, CheckCircle, ChevronRight, Clock, Eye, Loader2, Play, X, XCircle } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 import type { PQFile, PQQuestion, QuizStep } from "../../types";
 import { cn } from "../../utils/cn";
@@ -266,7 +269,9 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
           </span>
         </div>
 
-        <p className="text-sm text-gray-800 leading-relaxed mb-5">{q.text}</p>
+        <div className="text-sm text-gray-800 leading-relaxed mb-5 whitespace-pre-wrap">
+          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.text}</ReactMarkdown>
+        </div>
 
         {q.options ? (
           <div className="space-y-2">
@@ -281,7 +286,7 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
                 <span className="flex items-center gap-2">
                   {userAns && opt === q.answer && <Check size={13} className="text-emerald-600 shrink-0" />}
                   {userAns && opt === userAns && opt !== q.answer && <X size={13} className="text-red-500 shrink-0" />}
-                  {opt}
+                  <div className="inline-flex items-center"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{p: ({node, ...props}) => <span {...props} />}}>{opt}</ReactMarkdown></div>
                 </span>
               </button>
             ))}
@@ -303,7 +308,9 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
         {(showSol || (userAns && immediate)) && (
           <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl">
             <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 mb-2">Solution</p>
-            <p className="text-xs text-blue-900 whitespace-pre-line leading-relaxed font-mono">{q.solution}</p>
+            <div className="text-xs text-blue-900 whitespace-pre-wrap leading-relaxed font-mono">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.solution}</ReactMarkdown>
+            </div>
           </div>
         )}
 

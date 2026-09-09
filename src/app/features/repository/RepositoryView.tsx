@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Wand2, Loader2 } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 
 import { db } from "../../lib/firebase";
@@ -16,6 +19,50 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
   const [pendingQs, setPendingQs] = useState<QuestionRecord[]>([]);
   const [statuses, setStatuses] = useState<Record<string, "approved" | "rejected">>({});
   const [, setLoading] = useState(true);
+  const [cleaning, setCleaning] = useState(false);
+
+  const handleCleanStars = async () => {
+    if (!confirm("This will wipe all redundant '**' formatting artifacts from every question in the database. Continue?")) return;
+    setCleaning(true);
+    try {
+      const qSnap = await getDocs(collection(db, 'questions'));
+      let count = 0;
+      const clean = (str: any) => {
+        if (typeof str !== 'string') return str;
+        let res = str.replace(/\*\*/g, ''); 
+        res = res.replace(/^\s*\*\s*$/gm, ''); 
+        return res;
+      };
+
+      for (const d of qSnap.docs) {
+        const data = d.data();
+        let updated = false;
+        const newData: any = {};
+        
+        ['text', 'questionText', 'answer', 'solution', 'solutionText'].forEach(field => {
+          if (data[field]) {
+            const cleaned = clean(data[field]);
+            if (cleaned !== data[field]) {
+              newData[field] = cleaned;
+              updated = true;
+            }
+          }
+        });
+
+        if (updated) {
+          await updateDoc(doc(db, 'questions', d.id), newData);
+          count++;
+        }
+      }
+      alert(`Successfully cleaned ${count} questions!`);
+      fetchQuestions(); 
+    } catch (e) {
+      console.error(e);
+      alert("Failed to clean. Ensure you have admin permissions.");
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   const fetchPending = async () => {
     try {
@@ -114,9 +161,19 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-[#0F2340]">Repository</h1>
-        <p className="text-gray-500 text-sm mt-1">All uploaded past question papers — approve, reject, or manage submissions.</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#0F2340]">Repository</h1>
+          <p className="text-gray-500 text-sm mt-1">All uploaded past question papers — approve, reject, or manage submissions.</p>
+        </div>
+        <button 
+          onClick={handleCleanStars} 
+          disabled={cleaning}
+          className="px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 border border-indigo-100"
+        >
+          {cleaning ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+          {cleaning ? "Cleaning DB..." : "Wipe '*' Artifacts from DB"}
+        </button>
       </div>
 
       <div className="grid gap-6">
@@ -167,7 +224,9 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-gray-800">{courseCode} Question {item.number || "1"} ({item.session || "Unknown session"})</p>
                       <p className="text-xs text-gray-400">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
-                      <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded-lg mt-1 font-mono">{item.questionText?.substring(0, 150)}...</p>
+                      <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
+                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.questionText || ""}</ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                   {s ? (

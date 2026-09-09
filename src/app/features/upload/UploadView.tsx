@@ -212,10 +212,8 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20" />
             <select value={selSem} onChange={e => setSelSem(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20">
-              <option value="First">First Semester</option>
-              <option value="Second">Second Semester</option>
-              <option value="Rain">Rain Semester</option>
-              <option value="Harmattan">Harmattan Semester</option>
+              <option value="First">First semester/Harmattan semester</option>
+              <option value="Second">Second semester/Rain semester</option>
             </select>
           </div>
 

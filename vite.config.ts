@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -32,7 +32,9 @@ function apiMiddlewarePlugin() {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  process.env = { ...process.env, ...loadEnv(mode, process.cwd(), '') };
+  return {
   plugins: [
     figmaAssetResolver(),
     apiMiddlewarePlugin(),
@@ -50,4 +52,5 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  };
 })
