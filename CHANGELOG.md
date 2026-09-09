@@ -9,6 +9,31 @@ Open work lives in [TODO.md](TODO.md).
 
 ## [Unreleased]
 
+### Vercel deployment — 2026-09-09
+
+- **`api/` is now Vercel Serverless Functions.** The shared handlers moved to
+  `lib/ai-handlers.js` and `lib/node-adapter.js`, and `api/` holds four five-line
+  routing files (`ocr`, `grade`, `clean-text`, `generate-quizzes`). Vercel turns every
+  unprefixed file in `api/` into a public endpoint, so the shared modules could not
+  stay there. A third adapter, `lib/vercel-adapter.js`, wraps the same handlers — dev
+  middleware, `server.js` and Vercel now all call one implementation.
+- **`vercel.json` added.** `maxDuration: 60` because the 10-second default times out
+  on Gemini OCR of a full page, and an SPA rewrite that excludes `/api/` so it does not
+  swallow the endpoints.
+- **Large uploads no longer fail in production.** Vercel caps request bodies at 4.5 MB
+  and base64 inflates a file by a third, so a 3.4 MB phone photo exceeded it — while
+  working locally, where the dev server has no cap. `src/app/utils/downscale.ts` scales
+  images to a 2200 px edge and steps JPEG quality down until they fit, falling back to
+  the original bytes if the canvas path fails. Oversized requests now return a 413 that
+  explains itself.
+- **`DEPLOY-VERCEL.md` added**, including why deployments have been blocked since
+  `bb30ad5`: the Vercel project is on a personal Hobby account, which only builds
+  commits authored by the account owner. Not a code problem.
+
+Verified: typecheck 0 errors · build passing · rules 48/48 · 16/16 Vercel function
+checks (happy path, 405, string body, malformed JSON) · `server.js` and the dev
+middleware both still serving all four routes after the move.
+
 ### Cleanup — 2026-09-08
 
 - **App source split into a feature tree.** The former monolithic `src/app/App.tsx`

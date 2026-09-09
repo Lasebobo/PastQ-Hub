@@ -103,9 +103,19 @@ These have already caused real bugs. Treat old line numbers as stale and re-grep
 
 3. **A static deploy has no `/api/*`.** `vite build` emits static files only, so
    deploying `dist/` alone silently breaks OCR, AI grading, text cleanup and quiz
-   generation — the client calls are in the bundle, the server is not. Deploy with
-   `npm start` (`server.js`) on a Node host, not to static hosting.
-   *(`firebase.json` deliberately configures Firestore only, for this reason.)*
+   generation — the client calls are in the bundle, the server is not. **Never deploy
+   to GitHub Pages or any static host.** Two supported targets:
+   - **Vercel** — `api/*.js` are Serverless Functions; see `DEPLOY-VERCEL.md`.
+   - **Any Node host** — `npm run build && npm start` runs `server.js`.
+
+   The four endpoints live once in `lib/ai-handlers.js`. Three adapters wrap them:
+   `lib/node-adapter.js` (dev middleware + `server.js`) and `lib/vercel-adapter.js`
+   (`api/*.js`). **`api/` holds routing only — never logic.** Adding an endpoint means
+   editing `lib/ai-handlers.js` and adding a five-line file under `api/`. Anything in
+   `api/` not prefixed with `_` becomes a public endpoint on Vercel, which is why the
+   shared modules live in `lib/` and not there.
+
+   *(`firebase.json` configures Firestore only — it is not a hosting target.)*
 
 4. **Mock fallbacks hide broken code paths.** Every AI endpoint returns canned data
    when `GEMINI_API_KEY` is unset, so a broken request still "works" in the UI. That

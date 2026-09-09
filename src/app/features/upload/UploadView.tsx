@@ -3,6 +3,7 @@ import { AlertCircle, Camera, Check, CheckCircle, Download, FileText, Loader2, S
 import { addDoc, collection } from "firebase/firestore";
 
 import { auth, db } from "../../lib/firebase";
+import { encodeImageForOcr } from "../../utils/downscale";
 import type { QuestionWriteRecord } from "../../types";
 import { cn } from "../../utils/cn";
 
@@ -75,44 +76,30 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
     if (!file) return;
     setOcrLoading(true); setOcrText("");
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = reader.result as string;
-        // Gemini's inlineData.data wants raw base64, not the "data:<mime>;base64," prefix.
-        const [meta, rawBase64] = dataUrl.split(",");
-        const mimeType = meta?.match(/^data:([^;]+)/)?.[1] || file.type || "image/jpeg";
-        try {
-          const res = await fetch("/api/ocr", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              imageBase64: rawBase64,
-              mimeType,
-              filename: file.name
-            })
-          });
-          const data = await res.json();
-          if (data.text) {
-            setOcrText(data.text);
-            setOcrDone(true);
-          } else {
-            setOcrText(data.error || "OCR Extraction failed.");
-          }
-        } catch (err: any) {
-          setOcrText(err.message || "Failed to contact OCR API.");
-        } finally {
-          setOcrLoading(false);
-        }
-      };
-      reader.onerror = () => {
-        setOcrText("Could not read that file. Try a different image or PDF.");
-        setOcrLoading(false);
-      };
-      reader.readAsDataURL(file);
+      // Downscales large photos first — Vercel rejects request bodies over 4.5 MB
+      // and base64 inflates a file by about a third.
+      const { base64, mimeType } = await encodeImageForOcr(file);
+      const res = await fetch("/api/ocr", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType,
+          filename: file.name
+        })
+      });
+      const data = await res.json();
+      if (data.text) {
+        setOcrText(data.text);
+        setOcrDone(true);
+      } else {
+        setOcrText(data.error || "OCR Extraction failed.");
+      }
     } catch (err: any) {
-      console.error(err);
+      setOcrText(err.message || "Could not read that file. Try a different image or PDF.");
+    } finally {
       setOcrLoading(false);
     }
   };

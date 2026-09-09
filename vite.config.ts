@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { handleApiRequest } from './api/node-adapter.js'
+import { handleApiRequest } from './lib/node-adapter.js'
 
 
 function figmaAssetResolver() {
@@ -21,7 +21,7 @@ function apiMiddlewarePlugin() {
   return {
     name: 'pastq-api-middleware',
     configureServer(server) {
-      // The handlers themselves live in api/handlers.js and are shared with
+      // The handlers themselves live in lib/ai-handlers.js and are shared with
       // server.js, so dev and production cannot drift apart.
       server.middlewares.use(async (req, res, next) => {
         const path = (req.url || '').split('?')[0]

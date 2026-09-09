@@ -22,9 +22,10 @@ npm run build
 npm start        # http://localhost:3000
 ```
 
-`npm run build` produces static files only. The `/api/*` routes are served by
-`server.js`, so **deploy with `npm start` on a Node host — not to static hosting**, or
-OCR, AI grading and quiz generation will return 404.
+`npm run build` produces static files only. The `/api/*` routes need a runtime, so
+**deploy to Vercel ([DEPLOY-VERCEL.md](DEPLOY-VERCEL.md)) or run `npm start` on a Node
+host — never to GitHub Pages or other static hosting**, or OCR, AI grading and quiz
+generation will return 404 while the app looks like it loaded fine.
 
 ### Environment
 
@@ -49,8 +50,9 @@ Cloud Firestore · Google Gemini · jsPDF
 | `src/app/data/` | Bundled demo papers for the admin seed flow. |
 | `src/app/services/` | Firestore-facing helpers and paper reconstruction logic. |
 | `src/app/utils/` | Small presentation helpers for class names, department colours, and frequency badges. |
-| `api/` | The four AI endpoints, shared by the dev server and `server.js`. |
-| `server.js` | Production server — static files, API routes, SPA fallback. |
+| `lib/` | The four AI endpoints, written once, plus the Node and Vercel adapters. |
+| `api/` | Vercel Serverless Functions — routing only, five lines each. |
+| `server.js` | Node-host server — static files, API routes, SPA fallback. |
 | `firestore.rules` | Database security rules. **Not deployed yet** — see `TODO.md`. |
 
 ## Before deploying
