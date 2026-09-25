@@ -181,6 +181,7 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
         
         const originalFileUrl = cloudinaryData.secure_url;
         let extractedText = "OCR processing failed or skipped.";
+        let extractedMeta = null;
         try {
           const { base64, mimeType } = await encodeImageForOcr(fileForCloudinary);
           const ocrRes = await fetch("/api/ocr", {
@@ -190,19 +191,26 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
           });
           const ocrData = await ocrRes.json();
           if (ocrData.text) extractedText = ocrData.text;
+          if (ocrData.meta) extractedMeta = ocrData.meta;
         } catch (err) {
           console.error(`Silent OCR failed for ${item.filename}:`, err);
         }
 
+        const finalCourseCode = extractedMeta?.courseCode || item.meta.courseCode;
+        const finalSession = extractedMeta?.session || item.meta.session;
+        const finalSemester = extractedMeta?.semester || item.meta.semester;
+        const finalLevel = extractedMeta?.level || item.meta.level;
+        const finalYear = extractedMeta?.year || Number(finalSession.split('/')[0]) || 2024;
+
         allInserts.push({
-          courseCode: item.meta.courseCode,
-          courseTitle: item.meta.courseCode,
+          courseCode: finalCourseCode,
+          courseTitle: finalCourseCode,
           department: "General",
           faculty: "Technology",
-          session: item.meta.session,
-          semester: item.meta.semester,
-          year: Number(item.meta.session.split('/')[0]) || 2024,
-          level: item.meta.level,
+          session: finalSession,
+          semester: finalSemester,
+          year: finalYear,
+          level: finalLevel,
           instructions: "Attempt all questions.",
           section: "A",
           number: "1",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Wand2, Loader2 } from "lucide-react";
+import { Check, Wand2, Loader2, Edit, X } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -21,21 +21,16 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
   const [, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingPaper, setEditingPaper] = useState<PQFile | null>(null);
+  const [editMeta, setEditMeta] = useState({ courseCode: "", session: "", year: "", semester: "" });
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
 
   const handleDeletePaper = async (pq: PQFile) => {
     if (!confirm(`Are you sure you want to completely delete ${pq.courseCode} ${pq.session}? This will permanently remove all its questions from the database.`)) return;
     
     setDeletingId(pq.id);
     try {
-      const qSnap = await getDocs(
-        query(
-          collection(db, 'questions'),
-          where('courseCode', '==', pq.courseCode),
-          where('session', '==', pq.session)
-        )
-      );
-      
-      await Promise.all(qSnap.docs.map(d => deleteDoc(doc(db, 'questions', d.id))));
+      await Promise.all(pq.questions.map(q => deleteDoc(doc(db, 'questions', q.id))));
       
       alert(`Deleted ${pq.courseCode} ${pq.session} successfully.`);
       fetchQuestions();
@@ -44,6 +39,41 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
       alert("Failed to delete paper.");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const openEditModal = (pq: PQFile) => {
+    setEditingPaper(pq);
+    setEditMeta({
+      courseCode: pq.courseCode,
+      session: pq.session,
+      year: pq.year?.toString() || "",
+      semester: pq.semester
+    });
+  };
+
+  const handleSaveMeta = async () => {
+    if (!editingPaper) return;
+    setIsSavingMeta(true);
+    try {
+      await Promise.all(
+        editingPaper.questions.map(q => 
+          updateDoc(doc(db, 'questions', q.id), {
+            courseCode: editMeta.courseCode.toUpperCase(),
+            session: editMeta.session,
+            year: parseInt(editMeta.year) || new Date().getFullYear(),
+            semester: editMeta.semester
+          })
+        )
+      );
+      alert("Paper updated successfully.");
+      setEditingPaper(null);
+      fetchQuestions();
+    } catch (err) {
+      console.error("Failed to update metadata:", err);
+      alert("Failed to update metadata.");
+    } finally {
+      setIsSavingMeta(false);
     }
   };
 
@@ -231,6 +261,10 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                   <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg flex items-center gap-1">
                     <Check size={10} /> Published
                   </span>
+                  <button onClick={() => openEditModal(pq)}
+                    className="text-xs border border-blue-200 px-3 py-1.5 rounded-xl text-blue-600 hover:bg-blue-50 font-semibold flex items-center gap-1">
+                    <Edit size={12} /> Edit
+                  </button>
                   <button onClick={() => handleDeletePaper(pq)} disabled={deletingId === pq.id}
                     className="text-xs border border-red-200 px-3 py-1.5 rounded-xl text-red-600 hover:bg-red-50 font-semibold disabled:opacity-50 flex items-center gap-1">
                     {deletingId === pq.id ? <Loader2 size={12} className="animate-spin" /> : null}
@@ -288,7 +322,7 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                               {courseCode.split(" ")[0]}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-bold text-gray-800">{courseCode} Question {item.number || "1"} ({item.session || "Unknown session"})</p>
+                              <p className="text-sm font-bold text-gray-800">{courseCode} Past Paper ({item.session || "Unknown session"})</p>
                               <p className="text-xs text-gray-400 mb-2">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
                               
                               {item.originalFileUrl ? (
@@ -335,6 +369,73 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
           </div>
         </div>
       </div>
+      {/* Edit Metadata Modal */}
+      {editingPaper && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setEditingPaper(null)} className="absolute right-6 top-6 p-2 text-gray-400 hover:bg-gray-50 rounded-full transition-colors">
+              <X size={20} />
+            </button>
+            <h2 className="text-xl font-black text-[#0F2340] mb-6">Edit Paper Details</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Course Code</label>
+                <input 
+                  type="text" 
+                  value={editMeta.courseCode} 
+                  onChange={e => setEditMeta({...editMeta, courseCode: e.target.value})}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-[#0F2340] focus:ring-2 focus:ring-[#0F2340]/20 focus:border-[#0F2340] transition-all outline-none"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Session</label>
+                  <input 
+                    type="text" 
+                    value={editMeta.session} 
+                    onChange={e => setEditMeta({...editMeta, session: e.target.value})}
+                    placeholder="2023/2024"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-[#0F2340] focus:ring-2 focus:ring-[#0F2340]/20 focus:border-[#0F2340] transition-all outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Year</label>
+                  <input 
+                    type="text" 
+                    value={editMeta.year} 
+                    onChange={e => setEditMeta({...editMeta, year: e.target.value})}
+                    placeholder="2024"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-[#0F2340] focus:ring-2 focus:ring-[#0F2340]/20 focus:border-[#0F2340] transition-all outline-none"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Semester</label>
+                <select 
+                  value={editMeta.semester} 
+                  onChange={e => setEditMeta({...editMeta, semester: e.target.value})}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-sm font-bold text-[#0F2340] focus:ring-2 focus:ring-[#0F2340]/20 focus:border-[#0F2340] transition-all outline-none"
+                >
+                  <option value="First">First Semester</option>
+                  <option value="Second">Second Semester</option>
+                </select>
+              </div>
+            </div>
+
+            <button 
+              onClick={handleSaveMeta} 
+              disabled={isSavingMeta}
+              className="w-full mt-8 py-3.5 bg-[#0F2340] text-white rounded-xl font-bold text-sm hover:bg-[#1a3a6b] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isSavingMeta && <Loader2 size={16} className="animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
