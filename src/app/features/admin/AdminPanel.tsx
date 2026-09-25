@@ -67,7 +67,15 @@ export function AdminPanel() {
     setUsers(prev => prev.map(u => (u.id === uid ? { ...u, role: nextRole } : u)));
     try {
       await updateDoc(doc(db, 'users', uid), { role: nextRole });
-      setRoleMsg(`Role updated. It takes effect the next time they load the app.`);
+      // Keep the Storage custom claim in sync — Storage rules read
+      // request.auth.token.role rather than calling firestore.get() (which
+      // doesn't work with named Firestore databases).
+      await fetch('/api/set-custom-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, role: nextRole }),
+      });
+      setRoleMsg(`Role updated. It takes effect the next time they sign in.`);
     } catch (err: any) {
       setUsers(prev => prev.map(u => (u.id === uid ? { ...u, role: previous } : u)));
       setRoleMsg(`Could not update role: ${err.message || err}`);

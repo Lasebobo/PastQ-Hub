@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from "react";
-import { BookMarked, Bookmark, Check, ChevronDown, ChevronLeft, Download, Play, Loader2, UploadCloud } from "lucide-react";
+import { BookMarked, Bookmark, Check, ChevronDown, ChevronLeft, Download, Play, Loader2, UploadCloud, Maximize } from "lucide-react";
 import { arrayRemove, arrayUnion, doc, updateDoc } from "firebase/firestore";
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 import { db } from "../../lib/firebase";
 import type { UserProfile } from "../../lib/AuthContext";
@@ -9,9 +13,6 @@ import { cn } from "../../utils/cn";
 import { deptColor } from "../../utils/departments";
 import { freqMeta, FreqIcon } from "../../utils/frequency";
 import { encodeImageForOcr } from "../../utils/downscale";
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 
 export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions }: {
   pq: PQFile;
@@ -26,7 +27,29 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
   const [editForm, setEditForm] = useState({ text: "", answer: "", solution: "" });
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingGuide, setIsUploadingGuide] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().catch(err => {
+        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   useEffect(() => {
     if (userProfile?.bookmarkedQuestions) {
@@ -122,97 +145,150 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
 
   const sections = [...new Set(pq.questions.map(q => q.section))];
 
-  const downloadPaper = async () => {
-    const { default: jsPDF } = await import("jspdf");
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const PAGE_W = doc.internal.pageSize.getWidth();
-    const PAGE_H = doc.internal.pageSize.getHeight();
-    const M = 18;                    // margin
-    const W = PAGE_W - M * 2;        // usable width
-    let y = M;
-
-    // jsPDF's built-in fonts are Latin-1, so characters like — and ₦ would render
-    // as mojibake. Fold the ones our content actually uses down to ASCII.
-    const ascii = (s: string) => (s || "")
-      .replace(/[—–]/g, "-").replace(/[""]/g, '"').replace(/['']/g, "'")
-      .replace(/[─│]/g, "-").replace(/…/g, "...").replace(/×/g, "x")
-      .replace(/≥/g, ">=").replace(/≤/g, "<=").replace(/[^\x00-\xFF]/g, "");
-
-    const room = (needed: number) => {
-      if (y + needed > PAGE_H - M) { doc.addPage(); y = M; return true; }
-      return false;
-    };
-
-    const write = (
-      text: string,
-      { size = 10, style = "normal", gap = 4, indent = 0 } = {}
-    ) => {
-      doc.setFont("helvetica", style);
-      doc.setFontSize(size);
-      const lines: string[] = doc.splitTextToSize(ascii(text), W - indent);
-      for (const line of lines) {
-        room(size * 0.45);
-        doc.text(line, M + indent, y);
-        y += size * 0.45;
-      }
-      y += gap;
-    };
-
-    const rule = () => {
-      room(3);
-      doc.setDrawColor(180).setLineWidth(0.3).line(M, y, PAGE_W - M, y);
-      y += 5;
-    };
-
-    // ── Cover block ──────────────────────────────────────────────────────────
-    doc.setTextColor(15, 35, 64);
-    write(pq.faculty.toUpperCase(), { size: 11, style: "bold", gap: 1 });
-    write(`DEPARTMENT OF ${pq.department.toUpperCase()}`, { size: 11, style: "bold", gap: 3 });
-    write(`${pq.courseCode} - ${pq.courseTitle}`, { size: 15, style: "bold", gap: 2 });
-    doc.setTextColor(60);
-    write(`${pq.semester} Semester Examination, ${pq.session} Academic Session`, { size: 10, gap: 3 });
-    rule();
-    doc.setTextColor(0);
-    write(`INSTRUCTIONS: ${pq.instructions}`, { size: 9.5, gap: 2 });
-    write(`Total Marks: ${pq.totalMarks}   |   Questions: ${pq.questions.length}`, { size: 9.5, style: "bold", gap: 3 });
-    rule();
-
-    // ── Questions, by section ────────────────────────────────────────────────
-    sections.forEach(sec => {
-      room(14);
-      doc.setTextColor(15, 35, 64);
-      write(`SECTION ${sec}`, { size: 12, style: "bold", gap: 3 });
-      doc.setTextColor(0);
-
-      pq.questions.filter(q => q.section === sec).forEach(q => {
-        room(24); // keep a question's header with at least some of its body
-        write(`${q.number}.  (${q.marks} mark${q.marks !== 1 ? "s" : ""})   [${q.topic}]`,
-          { size: 10, style: "bold", gap: 1.5 });
-        write(q.text, { size: 10, gap: 2 });
-
-        if (q.options) {
-          q.options.forEach(o => write(o, { size: 9.5, gap: 0.5, indent: 6 }));
-          y += 1.5;
-        }
-
-        doc.setTextColor(11, 122, 91);
-        write(`ANSWER: ${q.answer}`, { size: 9.5, style: "bold", gap: 1.5, indent: 4 });
-        doc.setTextColor(70);
-        write(`SOLUTION: ${q.solution}`, { size: 9, gap: 5, indent: 4 });
-        doc.setTextColor(0);
-      });
-    });
-
-    // ── Page numbers ─────────────────────────────────────────────────────────
-    const total = doc.getNumberOfPages();
-    for (let p = 1; p <= total; p++) {
-      doc.setPage(p);
-      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(150);
-      doc.text(`${pq.courseCode} - ${pq.session}`, M, PAGE_H - 10);
-      doc.text(`Page ${p} of ${total}`, PAGE_W - M, PAGE_H - 10, { align: "right" });
+  // Downloads the exact file the lecturer/admin uploaded — same fonts,
+  // letterhead, diagrams, formatting. This is what "Download" should mean
+  // whenever a paper has one on file.
+  const downloadOriginal = async () => {
+    if (!pq.originalFileUrl) return;
+    setIsDownloading(true);
+    try {
+      const res = await fetch(pq.originalFileUrl);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = pq.originalFileName || `${pq.courseCode.replace(/ /g, "_")}_${pq.session.replace(/\//g, "_")}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Error downloading original paper:", err);
+      // Fall back to opening it directly if the fetch/blob path fails
+      // (e.g. a CORS quirk) — the file itself is still real, just opened
+      // in a new tab instead of saved straight to disk.
+      window.open(pq.originalFileUrl, "_blank");
+    } finally {
+      setIsDownloading(false);
     }
+  };
 
-    doc.save(`${pq.courseCode.replace(/ /g, "_")}_Exam_${pq.session.replace(/\//g, "_")}.pdf`);
+  // Fallback only, for papers uploaded before the original file was kept.
+  // Rebuilds a plain document from the extracted text — it will never match
+  // the real paper's layout, so it's offered only when no original exists.
+  const downloadReconstructed = async () => {
+    setIsDownloading(true);
+    try {
+      // Create an invisible iframe. This isolates the PDF generation from the main document,
+      // preventing html2canvas from crashing when it tries to parse Tailwind v4's oklch() 
+      // colors in the global stylesheets.
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "absolute";
+      iframe.style.left = "-9999px";
+      iframe.style.width = "700px";
+      iframe.style.height = "0";
+      iframe.style.border = "none";
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentWindow!.document;
+      iframeDoc.head.innerHTML = `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">`;
+
+      const container = iframeDoc.createElement("div");
+      container.style.width = "700px";
+      container.style.backgroundColor = "white";
+      container.style.color = "black";
+      container.style.padding = "20px";
+      container.style.fontFamily = "sans-serif";
+      
+      iframeDoc.body.appendChild(container);
+
+      const { createRoot } = await import("react-dom/client");
+      const root = createRoot(container);
+
+      const PdfContent = () => (
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#0F2340', margin: '0 0 10px 0' }}>{(pq.faculty || "").toUpperCase()}</h1>
+          <h2 style={{ fontSize: 18, fontWeight: 'bold', color: '#0F2340', margin: '0 0 15px 0' }}>DEPARTMENT OF {(pq.department || "").toUpperCase()}</h2>
+          <h3 style={{ fontSize: 20, fontWeight: 'bold', margin: '0 0 10px 0' }}>{pq.courseCode} - {pq.courseTitle}</h3>
+          <p style={{ fontSize: 14, color: '#4b5563', margin: '0 0 15px 0' }}>{pq.semester} Semester Examination, {pq.session} Academic Session</p>
+          <hr style={{ borderTop: '2px solid #e5e7eb', margin: '15px 0' }} />
+          <p style={{ fontSize: 13, margin: '0 0 5px 0' }}><strong>INSTRUCTIONS:</strong> {pq.instructions}</p>
+          <p style={{ fontSize: 13, margin: '0 0 15px 0' }}><strong>Total Marks:</strong> {pq.totalMarks} | <strong>Questions:</strong> {pq.questions?.length || 0}</p>
+          <hr style={{ borderTop: '2px solid #e5e7eb', margin: '15px 0 25px 0' }} />
+
+          {sections.map(sec => (
+            <div key={sec}>
+              <h2 style={{ fontSize: 18, fontWeight: 'bold', color: '#0F2340', margin: '20px 0 15px 0' }}>SECTION {sec}</h2>
+              {pq.questions.filter(q => q.section === sec).map(q => (
+                <div key={q.id} style={{ marginBottom: 25, pageBreakInside: 'avoid' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>
+                    {q.number}. ({q.marks} marks) [{q.topic}]
+                  </div>
+                  <div style={{ fontSize: 14, lineHeight: '1.6', marginBottom: 10 }}>
+                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      {q.type === "fillblank" ? q.text.replace(/__+/g, "______") : q.text}
+                    </ReactMarkdown>
+                  </div>
+                  {q.options && q.options.length > 0 && (
+                    <div style={{ marginLeft: 20, marginBottom: 10 }}>
+                      {q.options.map(opt => (
+                        <div key={opt} style={{ fontSize: 13, marginBottom: 4 }}>
+                          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{opt}</ReactMarkdown>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ padding: '12px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                    <div style={{ color: '#047857', fontSize: 13, fontWeight: 'bold', marginBottom: 6 }}>
+                      ANSWER:
+                    </div>
+                    <div style={{ fontSize: 13, marginBottom: 12 }}>
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.answer || ""}</ReactMarkdown>
+                    </div>
+                    <div style={{ color: '#334155', fontSize: 13, fontWeight: 'bold', marginBottom: 6 }}>
+                      SOLUTION:
+                    </div>
+                    <div style={{ fontSize: 13 }}>
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.solution || ""}</ReactMarkdown>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+
+      root.render(<PdfContent />);
+
+      // Wait a moment for KaTeX CSS and fonts to apply to the DOM
+      await new Promise(r => setTimeout(r, 1500));
+
+      const { default: jsPDF } = await import("jspdf");
+      const { default: html2canvas } = await import("html2canvas");
+      
+      // jsPDF requires html2canvas to be available globally in some environments
+      if (typeof window !== "undefined") {
+        (window as any).html2canvas = html2canvas;
+      }
+
+      const pdf = new jsPDF("p", "pt", "a4");
+
+      await pdf.html(container, {
+        margin: [40, 40, 40, 40],
+        autoPaging: "text",
+        width: 515,
+        windowWidth: 700
+      });
+
+      pdf.save(`${pq.courseCode.replace(/ /g, "_")}_Exam_${pq.session.replace(/\//g, "_")}.pdf`);
+      
+      root.unmount();
+      document.body.removeChild(iframe);
+    } catch (err: any) {
+      console.error("Failed to generate PDF:", err);
+      alert(`Failed to generate the PDF. Error: ${err?.message || err}`);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -254,10 +330,36 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
                 </button>
               </>
             )}
-            <button onClick={downloadPaper} title="Download this paper with answers and solutions as a PDF"
-              className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-              <Download size={14} /> Download PDF
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowDownloadMenu(!showDownloadMenu)} 
+                onBlur={() => setTimeout(() => setShowDownloadMenu(false), 200)}
+                disabled={isDownloading}
+                className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-60"
+              >
+                {isDownloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {isDownloading ? "Preparing..." : "Download"}
+                <ChevronDown size={14} />
+              </button>
+              {showDownloadMenu && (
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-xl shadow-lg z-10 py-1">
+                  {pq.originalFileUrl && (
+                    <button 
+                      onClick={() => { downloadOriginal(); setShowDownloadMenu(false); }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Download size={14} /> Original Format
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => { downloadReconstructed(); setShowDownloadMenu(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 flex items-center gap-2"
+                  >
+                    <Download size={14} /> Reconstructed PDF
+                  </button>
+                </div>
+              )}
+            </div>
             <button onClick={() => onStartQuiz(pq)}
               className="flex items-center gap-2 bg-[#E8A020] text-[#0F2340] rounded-xl px-4 py-2 text-sm font-bold hover:bg-[#d49018] transition-colors">
               <Play size={14} fill="currentColor" /> Practice Quiz
@@ -269,8 +371,33 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
         </div>
       </div>
 
-      {/* Questions by section */}
-      {sections.map(sec => {
+      {pq.originalFileUrl && (
+        <div ref={containerRef} className={cn("bg-white shadow-sm flex flex-col transition-all relative group", 
+          isFullscreen ? "w-screen h-screen m-0 p-0 rounded-none border-0" : "rounded-2xl border border-gray-100 p-3 mb-6")}>
+          
+          <div className={cn("flex justify-between items-center", isFullscreen ? "bg-[#0F2340] text-white p-4" : "mb-2 px-2")}>
+            <span className={cn("text-xs font-bold", isFullscreen ? "text-white" : "text-gray-500")}>
+              Document Viewer
+            </span>
+            <button onClick={toggleFullscreen} 
+              className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2", 
+                isFullscreen ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700")}>
+              <Maximize size={14} /> {isFullscreen ? "Exit Fullscreen" : "Expand Fullscreen"}
+            </button>
+          </div>
+
+          {pq.originalFileType?.startsWith("image/") ? (
+            <img src={pq.originalFileUrl} alt={`${pq.courseCode} ${pq.session} original paper`}
+              className={cn("w-full object-contain bg-gray-50", isFullscreen ? "flex-1 h-0" : "rounded-xl border border-gray-100")} />
+          ) : (
+            <iframe src={`${pq.originalFileUrl}#toolbar=0&navpanes=0&scrollbar=0`} title={`${pq.courseCode} ${pq.session} original paper`}
+              className={cn("w-full", isFullscreen ? "flex-1 h-0 bg-white" : "h-[85vh] rounded-xl border border-gray-100")} />
+          )}
+        </div>
+      )}
+
+      {/* Questions by section (only shown if there is no PDF uploaded, e.g. legacy or seed data) */}
+      {!pq.originalFileUrl && sections.map(sec => {
         const qs = pq.questions.filter(q => q.section === sec);
         return (
           <div key={sec} className="mb-6">
@@ -323,17 +450,17 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
                               <FreqIcon type={fm.icon} /> {fm.label}
                             </span>
                           </div>
-                          <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
+                          <div className="text-sm text-gray-800 leading-relaxed [&>p]:mb-2 overflow-x-auto">
                             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                              {(q.type === "fillblank" ? q.text.replace(/__+/g, "______") : q.text).replace(/^\s*\*\*\s*/, '').replace(/\s*\*\*\s*$/, '')}
+                              {q.type === "fillblank"
+                                ? q.text.replace(/__+/g, "______")
+                                : q.text}
                             </ReactMarkdown>
                           </div>
                           {q.options && !open && (
                             <div className="mt-2 grid grid-cols-2 gap-1.5">
                               {q.options.map(opt => (
-                                <span key={opt} className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-lg">
-                                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{p: ({node, ...props}) => <span {...props} />}}>{opt}</ReactMarkdown>
-                                </span>
+                                <span key={opt} className="text-xs text-gray-500 bg-gray-50 border border-gray-100 px-2.5 py-1 rounded-lg">{opt}</span>
                               ))}
                             </div>
                           )}
@@ -357,8 +484,7 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
                             {q.options.map(opt => (
                               <div key={opt} className={cn("text-xs px-3 py-2 rounded-xl border font-medium",
                                 opt === q.answer ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-white border-gray-100 text-gray-500")}>
-                                {opt === q.answer && <Check size={11} className="inline mr-1 text-emerald-600" />}
-                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={{p: ({node, ...props}) => <span {...props} />}}>{opt}</ReactMarkdown>
+                                {opt === q.answer && <Check size={11} className="inline mr-1 text-emerald-600" />}{opt}
                               </div>
                             ))}
                           </div>
@@ -366,15 +492,19 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                           {q.type === "fillblank" ? "Answer" : "Model Answer"}
                         </p>
-                        <div className="bg-white border border-gray-100 rounded-xl p-3 mb-2">
-                          <div className="text-sm font-semibold text-emerald-700 whitespace-pre-wrap">
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.answer}</ReactMarkdown>
+                        <div className="bg-white border border-gray-100 rounded-xl p-3 mb-2 overflow-x-auto">
+                          <div className="text-sm font-semibold text-emerald-700 [&>p]:mb-2">
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                              {q.answer || ""}
+                            </ReactMarkdown>
                           </div>
                         </div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Detailed Solution</p>
-                        <div className="bg-white border border-gray-100 rounded-xl p-3">
-                          <div className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed font-mono">
-                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.solution}</ReactMarkdown>
+                        <div className="bg-white border border-gray-100 rounded-xl p-3 overflow-x-auto">
+                          <div className="text-xs text-gray-700 leading-relaxed [&>p]:mb-2">
+                            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                              {q.solution || ""}
+                            </ReactMarkdown>
                           </div>
                         </div>
                         {(userProfile?.role === "admin" || userProfile?.role === "lecturer") && (

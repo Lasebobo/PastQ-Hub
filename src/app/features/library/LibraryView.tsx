@@ -14,13 +14,19 @@ export function LibraryView({ onOpenPQ, user, allPqFilesList }: {
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [filterYear, setFilterYear] = useState("");
+  const [filterCourse, setFilterCourse] = useState("");
+  const [filterLevel, setFilterLevel] = useState("");
 
   const depts = [...new Set(pqFiles.map(p => p.department))];
-  const years = [...new Set(pqFiles.map(p => p.session))];
+  const years = [...new Set(pqFiles.map(p => p.session))].sort();
+  const courses = [...new Set(pqFiles.map(p => p.courseCode))].sort();
+  const levels = [...new Set(pqFiles.map(p => p.level).filter(Boolean))].sort();
 
   const filtered = pqFiles.filter(p => {
     if (filterDept && p.department !== filterDept) return false;
     if (filterYear && p.session !== filterYear) return false;
+    if (filterCourse && p.courseCode !== filterCourse) return false;
+    if (filterLevel && p.level !== filterLevel) return false;
     if (search) {
       const s = search.toLowerCase();
       return p.courseCode.toLowerCase().includes(s) || p.courseTitle.toLowerCase().includes(s) ||
@@ -72,8 +78,20 @@ export function LibraryView({ onOpenPQ, user, allPqFilesList }: {
           <option value="">All Sessions</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        {(search || filterDept || filterYear) && (
-          <button onClick={() => { setSearch(""); setFilterDept(""); setFilterYear(""); }}
+        <select value={filterCourse} onChange={e => setFilterCourse(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20 bg-white text-gray-600">
+          <option value="">All Courses</option>
+          {courses.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {levels.length > 0 && (
+          <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2340]/20 bg-white text-gray-600">
+            <option value="">All Levels</option>
+            {levels.map(l => <option key={l} value={l as string}>{l} Level</option>)}
+          </select>
+        )}
+        {(search || filterDept || filterYear || filterCourse || filterLevel) && (
+          <button onClick={() => { setSearch(""); setFilterDept(""); setFilterYear(""); setFilterCourse(""); setFilterLevel(""); }}
             className="text-xs text-[#E8A020] font-semibold hover:underline flex items-center gap-1">
             <X size={11} /> Clear
           </button>

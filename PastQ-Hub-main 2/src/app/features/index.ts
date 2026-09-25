@@ -1,9 +1,0 @@
-export { AdminPanel } from "./admin/AdminPanel";
-export { AuthModal } from "./auth/AuthModal";
-export { BookmarksView } from "./bookmarks/BookmarksView";
-export { ForumView } from "./forum/ForumView";
-export { LibraryView } from "./library/LibraryView";
-export { QuizView } from "./quiz/QuizView";
-export { RepositoryView } from "./repository/RepositoryView";
-export { TrendsView } from "./trends/TrendsView";
-export { UploadView } from "./upload/UploadView";

@@ -65,7 +65,12 @@ export function reconstructPQFiles(questions: QuestionRecord[]): PQFile[] {
       uploadDate: toDateLabel(sample.createdAt),
       totalMarks: mappedQuestions.reduce((sum, q) => sum + q.marks, 0) || 100,
       approved: sample.status === "approved",
-      questions: mappedQuestions
+      questions: mappedQuestions,
+      // All rows from one paper carry the same original-file fields (or all
+      // lack them, for papers uploaded before this was tracked).
+      originalFileUrl: sample.originalFileUrl,
+      originalFileName: sample.originalFileName,
+      originalFileType: sample.originalFileType
     };
   });
 }

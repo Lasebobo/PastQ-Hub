@@ -28,12 +28,19 @@ export interface PQFile {
   session: string;
   semester: string;
   year: number;
+  level?: string;
   instructions: string;
   uploadedBy: string;
   uploadDate: string;
   totalMarks: number;
   approved: boolean;
   questions: PQQuestion[];
+  // Present when the paper was uploaded after the original-file-preservation
+  // fix; absent for older papers that were OCR'd and had their source
+  // discarded (those fall back to the reconstructed-PDF download).
+  originalFileUrl?: string;
+  originalFileName?: string;
+  originalFileType?: string;
 }
 
 export type FirestoreDate = number | string | Date | { toMillis: () => number };
@@ -48,6 +55,7 @@ export interface QuestionRecord {
   session?: string;
   semester?: string;
   year?: number;
+  level?: string;
   instructions?: string;
   section?: string;
   number?: string;
@@ -64,6 +72,12 @@ export interface QuestionRecord {
   status?: QuestionStatus;
   createdAt?: FirestoreDate;
   createdBy?: string;
+  // The actual file the lecturer/admin uploaded (PDF or photo), stored in
+  // Firebase Storage. Every question row belonging to the same paper carries
+  // the same three fields, so any one of them is enough to recover the paper.
+  originalFileUrl?: string;
+  originalFileName?: string;
+  originalFileType?: string;
 }
 
 export type QuestionWriteRecord = Omit<QuestionRecord, "id">;

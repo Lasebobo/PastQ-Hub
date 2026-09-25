@@ -21,7 +21,7 @@ export function TrendsView({ allPqFilesList }: { allPqFilesList: PQFile[] }) {
     <div className="mb-6">
       <h1 className="text-2xl font-bold text-[#0F2340]">Trend Analysis</h1>
       <p className="text-gray-500 text-sm mt-1">
-        See which topics appear most frequently across every paper in the repository.
+        See which topics appear most frequently across all available sessions for a specific course.
       </p>
     </div>
   );
@@ -37,15 +37,18 @@ export function TrendsView({ allPqFilesList }: { allPqFilesList: PQFile[] }) {
     </div>
   );
 
-  // Frequency = how many times a topic is actually asked across every paper in
-  // the repository, counted here rather than read from a stored field.
-  const globalTopicCounts = new Map<string, number>();
-  pqFiles.forEach(p =>
-    p.questions.forEach(q => globalTopicCounts.set(q.topic, (globalTopicCounts.get(q.topic) || 0) + 1)));
-
+  // Frequency = how many times a topic is actually asked across all papers
+  // for the selected course.
+  const coursePqFiles = pqFiles.filter(p => p.courseCode === pq.courseCode);
   const topicMap = new Map<string, number>();
-  pq.questions.forEach(q => topicMap.set(q.topic, globalTopicCounts.get(q.topic) || 1));
-  const topicStats = [...topicMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  coursePqFiles.forEach(p =>
+    p.questions.forEach(q => topicMap.set(q.topic, (topicMap.get(q.topic) || 0) + 1))
+  );
+
+  const topicStats = [...topicMap.entries()]
+    .filter(([topic]) => topic.toLowerCase() !== "general")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
   const maxFreq = topicStats[0]?.[1] || 1;
 
   return (

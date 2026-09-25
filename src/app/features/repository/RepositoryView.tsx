@@ -3,10 +3,10 @@ import { Check, Wand2, Loader2 } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, deleteDoc, where } from "firebase/firestore";
 
 import { db } from "../../lib/firebase";
-import type { GeneratedQuizRecord, PQFile, QuestionRecord, QuestionWriteRecord } from "../../types";
+import type { PQFile, QuestionRecord, QuestionWriteRecord } from "../../types";
 import { cn } from "../../utils/cn";
 import { deptColor } from "../../utils/departments";
 
@@ -20,6 +20,32 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
   const [statuses, setStatuses] = useState<Record<string, "approved" | "rejected">>({});
   const [, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeletePaper = async (pq: PQFile) => {
+    if (!confirm(`Are you sure you want to completely delete ${pq.courseCode} ${pq.session}? This will permanently remove all its questions from the database.`)) return;
+    
+    setDeletingId(pq.id);
+    try {
+      const qSnap = await getDocs(
+        query(
+          collection(db, 'questions'),
+          where('courseCode', '==', pq.courseCode),
+          where('session', '==', pq.session)
+        )
+      );
+      
+      await Promise.all(qSnap.docs.map(d => deleteDoc(doc(db, 'questions', d.id))));
+      
+      alert(`Deleted ${pq.courseCode} ${pq.session} successfully.`);
+      fetchQuestions();
+    } catch (err) {
+      console.error("Error deleting paper:", err);
+      alert("Failed to delete paper.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleCleanStars = async () => {
     if (!confirm("This will wipe all redundant '**' formatting artifacts from every question in the database. Continue?")) return;
@@ -205,6 +231,11 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                   <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg flex items-center gap-1">
                     <Check size={10} /> Published
                   </span>
+                  <button onClick={() => handleDeletePaper(pq)} disabled={deletingId === pq.id}
+                    className="text-xs border border-red-200 px-3 py-1.5 rounded-xl text-red-600 hover:bg-red-50 font-semibold disabled:opacity-50 flex items-center gap-1">
+                    {deletingId === pq.id ? <Loader2 size={12} className="animate-spin" /> : null}
+                    Delete
+                  </button>
                   <button onClick={() => onOpenPQ(pq)}
                     className="text-xs border border-gray-200 px-3 py-1.5 rounded-xl text-gray-600 hover:bg-gray-50 font-semibold">
                     View
@@ -258,10 +289,24 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                             </div>
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-gray-800">{courseCode} Question {item.number || "1"} ({item.session || "Unknown session"})</p>
-                              <p className="text-xs text-gray-400">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
-                              <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
-                                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.questionText || ""}</ReactMarkdown>
-                              </div>
+                              <p className="text-xs text-gray-400 mb-2">Semester: {item.semester} · Topic: {item.topic} · Marks: {item.marks}</p>
+                              
+                              {item.originalFileUrl ? (
+                                <div className="mt-2">
+                                  {item.originalFileType?.startsWith("image/") ? (
+                                    <img src={item.originalFileUrl} alt="Uploaded paper" className="w-full max-h-[400px] object-contain rounded-xl border border-gray-200 bg-gray-50" />
+                                  ) : (
+                                    <iframe src={item.originalFileUrl} title="Uploaded paper" className="w-full h-[400px] rounded-xl border border-gray-200 bg-gray-50" />
+                                  )}
+                                  <a href={item.originalFileUrl} target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs font-semibold text-blue-600 hover:underline">
+                                    Open Document in New Tab
+                                  </a>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
+                                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{item.questionText || ""}</ReactMarkdown>
+                                </div>
+                              )}
                             </div>
                           </div>
                           {s ? (

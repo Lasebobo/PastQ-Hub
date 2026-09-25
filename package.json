@@ -9,11 +9,14 @@
     "start": "node server.js",
     "typecheck": "tsc --noEmit",
     "test:rules": "firebase emulators:exec --only firestore --project pastq-test --config firebase.test.json \"node rules-test.mjs\"",
+    "test:storage-rules": "firebase emulators:exec --only firestore,storage,auth --project pastq-test --config firebase.storage-test.json \"node storage-rules-test.mjs\"",
     "emulator": "firebase emulators:start --only firestore --project pastq-test --config firebase.test.json"
   },
   "dependencies": {
     "firebase": "^12.16.0",
+    "firebase-admin": "^14.5.0",
     "framer-motion": "^13.2.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "katex": "^0.18.7",
     "lucide-react": "0.487.0",
