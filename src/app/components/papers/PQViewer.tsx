@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
-import { BookMarked, Bookmark, Check, ChevronDown, ChevronLeft, Download, Play, Loader2, UploadCloud, Maximize } from "lucide-react";
-import { arrayRemove, arrayUnion, doc, updateDoc } from "firebase/firestore";
+import { BookMarked, Bookmark, Check, ChevronDown, ChevronLeft, Download, Play, Loader2, UploadCloud, Maximize, Trash2 } from "lucide-react";
+import { arrayRemove, arrayUnion, doc, updateDoc, deleteDoc } from "firebase/firestore";
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -28,6 +28,7 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingGuide, setIsUploadingGuide] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -99,6 +100,23 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
       console.error("Error saving:", e);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeletePaper = async () => {
+    if (!confirm(`Are you sure you want to completely delete ${pq.courseCode} ${pq.session}? This will permanently remove all its questions from the database.`)) return;
+    
+    setIsDeleting(true);
+    try {
+      await Promise.all(pq.questions.map(q => deleteDoc(doc(db, 'questions', q.id))));
+      alert(`Deleted ${pq.courseCode} ${pq.session} successfully.`);
+      fetchQuestions();
+      onBack();
+    } catch (err) {
+      console.error("Error deleting paper:", err);
+      alert("Failed to delete paper.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -328,6 +346,13 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
                   {isUploadingGuide ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />} 
                   {isUploadingGuide ? "Extracting..." : "Upload Marking Guide"}
                 </button>
+                {userProfile?.role === "admin" && (
+                  <button onClick={handleDeletePaper} disabled={isDeleting}
+                    className="flex items-center gap-2 border border-red-200 bg-red-50 rounded-xl px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50">
+                    {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} 
+                    {isDeleting ? "Deleting..." : "Delete Paper"}
+                  </button>
+                )}
               </>
             )}
             <div className="relative">

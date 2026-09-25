@@ -24,6 +24,8 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
   const [editingPaper, setEditingPaper] = useState<PQFile | null>(null);
   const [editMeta, setEditMeta] = useState({ courseCode: "", session: "", year: "", semester: "" });
   const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [extractingPages, setExtractingPages] = useState<string | null>(null);
+  const [pageRangeInputs, setPageRangeInputs] = useState<Record<string, string>>({});
 
   const handleDeletePaper = async (pq: PQFile) => {
     if (!confirm(`Are you sure you want to completely delete ${pq.courseCode} ${pq.session}? This will permanently remove all its questions from the database.`)) return;
@@ -117,6 +119,73 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
       alert("Failed to clean. Ensure you have admin permissions.");
     } finally {
       setCleaning(false);
+    }
+  };
+
+  const handleExtractPages = async (q: QuestionRecord) => {
+    const pageRangeInput = pageRangeInputs[q.id];
+    if (!pageRangeInput?.trim()) return;
+    setExtractingPages(q.id);
+    try {
+      const pdfBytes = await fetch(q.originalFileUrl!).then(res => res.arrayBuffer());
+      const { PDFDocument } = await import("pdf-lib");
+      const sourceDoc = await PDFDocument.load(pdfBytes);
+      const newDoc = await PDFDocument.create();
+
+      const parts = pageRangeInput.split(',').map(s => s.trim());
+      const pagesToKeep = new Set<number>();
+      for (const p of parts) {
+        if (p.includes('-')) {
+          const [start, end] = p.split('-').map(Number);
+          for (let i = start; i <= end; i++) pagesToKeep.add(i - 1);
+        } else {
+          pagesToKeep.add(Number(p) - 1);
+        }
+      }
+
+      const sortedPages = Array.from(pagesToKeep).filter(p => p >= 0 && p < sourceDoc.getPageCount()).sort((a, b) => a - b);
+      if (sortedPages.length === 0) throw new Error("No valid pages selected");
+
+      const copiedPages = await newDoc.copyPages(sourceDoc, sortedPages);
+      copiedPages.forEach(page => newDoc.addPage(page));
+
+      const newPdfBytes = await newDoc.save();
+      const finalPdfFile = new File([newPdfBytes], q.originalFileName || "extracted.pdf", { type: 'application/pdf' });
+
+      const formData = new FormData();
+      formData.append("file", finalPdfFile);
+      formData.append("upload_preset", "PastQ_Hub");
+      const res = await fetch(`https://api.cloudinary.com/v1_1/m75ty0r1/raw/upload`, {
+        method: "POST",
+        body: formData
+      });
+      const cloudinaryData = await res.json();
+      if (!res.ok) throw new Error("Failed to upload extracted PDF to Cloudinary");
+      const newUrl = cloudinaryData.secure_url;
+
+      const { encodeImageForOcr } = await import("../../utils/downscale");
+      const { base64, mimeType } = await encodeImageForOcr(finalPdfFile);
+      const ocrRes = await fetch("/api/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mimeType, filename: finalPdfFile.name })
+      });
+      const ocrData = await ocrRes.json();
+      const newText = ocrData.text || q.questionText;
+
+      await updateDoc(doc(db, "questions", q.id), {
+        originalFileUrl: newUrl,
+        questionText: newText
+      });
+
+      alert("Pages extracted and OCR updated successfully!");
+      setPageRangeInputs(prev => ({ ...prev, [q.id]: "" }));
+      fetchPending();
+    } catch (e: any) {
+      console.error(e);
+      alert(`Error extracting pages: ${e.message}`);
+    } finally {
+      setExtractingPages(null);
     }
   };
 
@@ -335,6 +404,27 @@ export function RepositoryView({ onOpenPQ, allPqFilesList, fetchQuestions }: {
                                   <a href={item.originalFileUrl} target="_blank" rel="noreferrer" className="inline-block mt-2 text-xs font-semibold text-blue-600 hover:underline">
                                     Open Document in New Tab
                                   </a>
+                                  {item.originalFileType === "application/pdf" && (
+                                    <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-2 max-w-sm">
+                                      <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest block">Extract Specific Pages</label>
+                                      <div className="flex gap-2">
+                                        <input 
+                                          value={pageRangeInputs[item.id] || ""} 
+                                          onChange={e => setPageRangeInputs(prev => ({...prev, [item.id]: e.target.value}))}
+                                          placeholder="e.g. 1, 3, 4-7"
+                                          className="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/20" 
+                                        />
+                                        <button 
+                                          onClick={() => handleExtractPages(item)}
+                                          disabled={extractingPages === item.id || !(pageRangeInputs[item.id]?.trim())}
+                                          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 shrink-0"
+                                        >
+                                          {extractingPages === item.id ? <Loader2 size={14} className="animate-spin" /> : null}
+                                          Extract & OCR
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="text-xs text-gray-800 bg-gray-50 p-3 rounded-xl mt-2 whitespace-pre-wrap max-h-60 overflow-y-auto prose prose-sm max-w-none prose-p:my-1 prose-pre:bg-transparent">
