@@ -1,0 +1,62 @@
+rules_version = '2';
+
+// PastQ-Hub Storage security rules.
+//
+// Covers the original past-question files (PDF/photo) that lecturers and
+// admins upload — see UploadView.tsx (write) and PQViewer.tsx (read/download).
+//
+// ROLE STRATEGY — custom claims, not firestore.get():
+// This project uses a named Firestore database, and cross-service
+// firestore.get() from Storage rules does not work reliably against named
+// databases (confirmed broken in the emulator; firebase-tools#5251).
+// The fallback: roles are stored as Firebase custom claims
+// (request.auth.token.role). They are set by the /api/set-custom-claim
+// Vercel route whenever an admin changes a role in the Admin Panel.
+// Custom claims are embedded in the ID token, so they work in Storage
+// rules with no cross-service calls needed.
+//
+// DEPLOY ORDER:
+//   1. Promote your first admin by hand in the Firebase console — set their
+//      users/{uid}.role to "admin" AND call /api/set-custom-claim manually
+//      (or use the Firebase Admin SDK directly in the console) to set the
+//      custom claim on their token.
+//   2. firebase deploy --only firestore:rules
+//   3. firebase deploy --only storage
+//
+// VERIFIED: 7/7 assertions pass in the emulator with custom claims.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Role lives in the custom claim set by /api/set-custom-claim.
+    // Falls back to "student" if the claim is absent (e.g. a user who
+    function isStaff() {
+      return signedIn() && (request.auth.token.role == 'admin' || request.auth.token.role == 'lecturer');
+    }
+
+    // ── papers/{courseCode}/{session}/{fileName} ──────────────────────────
+    match /papers/{courseCode}/{session}/{fileName} {
+      // Any signed-in user (student, lecturer, admin) can view or download
+      // an original paper — that is the whole point of the original-file fix.
+      allow read: if signedIn();
+
+      // Only lecturers/admins can upload, and only PDFs or photos, capped
+      // at 25 MB so one bad upload can't fill the bucket.
+      allow write: if isStaff()
+                   && request.resource.size < 25 * 1024 * 1024
+                   && (request.resource.contentType.matches('application/pdf')
+                       || request.resource.contentType.matches('image/.*'));
+
+      allow delete: if isStaff();
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

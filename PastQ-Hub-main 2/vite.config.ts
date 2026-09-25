@@ -1,0 +1,56 @@
+import { defineConfig, loadEnv } from 'vite'
+import path from 'path'
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
+import { handleApiRequest } from './lib/node-adapter.js'
+
+
+function figmaAssetResolver() {
+  return {
+    name: 'figma-asset-resolver',
+    resolveId(id) {
+      if (id.startsWith('figma:asset/')) {
+        const filename = id.replace('figma:asset/', '')
+        return path.resolve(__dirname, 'src/assets', filename)
+      }
+    },
+  }
+}
+
+function apiMiddlewarePlugin() {
+  return {
+    name: 'pastq-api-middleware',
+    configureServer(server) {
+      // The handlers themselves live in lib/ai-handlers.js and are shared with
+      // server.js, so dev and production cannot drift apart.
+      server.middlewares.use(async (req, res, next) => {
+        const path = (req.url || '').split('?')[0]
+        const handled = await handleApiRequest(req, res, path)
+        if (!handled) next()
+      })
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => {
+  process.env = { ...process.env, ...loadEnv(mode, process.cwd(), '') };
+  return {
+  plugins: [
+    figmaAssetResolver(),
+    apiMiddlewarePlugin(),
+    // The React and Tailwind plugins are both required for Make, even if
+    // Tailwind is not being actively used – do not remove them
+    react(),
+    tailwindcss(),
+  ],
+  resolve: {
+    alias: {
+      // Alias @ to the src directory
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+
+  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
+  assetsInclude: ['**/*.svg', '**/*.csv'],
+  };
+})

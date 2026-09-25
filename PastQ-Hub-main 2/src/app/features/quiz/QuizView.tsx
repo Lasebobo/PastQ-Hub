@@ -270,9 +270,7 @@ export function QuizView({ preloadPQ, allPqFilesList }: { preloadPQ?: PQFile | n
         </div>
 
         <div className="text-sm text-gray-800 leading-relaxed mb-5 whitespace-pre-wrap">
-          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-            {q.text.replace(/^\s*\*\*\s*/, '').replace(/\s*\*\*\s*$/, '')}
-          </ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{q.text}</ReactMarkdown>
         </div>
 
         {q.options ? (
