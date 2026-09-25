@@ -14,9 +14,11 @@ function sessionFor(question: QuestionRecord) {
 
 export function reconstructPQFiles(questions: QuestionRecord[]): PQFile[] {
   const groups: Record<string, QuestionRecord[]> = {};
-  const topicCounts = questions.reduce<Record<string, number>>((acc, q) => {
+  const courseTopicCounts = questions.reduce<Record<string, Record<string, number>>>((acc, q) => {
+    const c = q.courseCode || "General";
     const topic = q.topic || "General";
-    acc[topic] = (acc[topic] || 0) + 1;
+    if (!acc[c]) acc[c] = {};
+    acc[c][topic] = (acc[c][topic] || 0) + 1;
     return acc;
   }, {});
 
@@ -38,7 +40,7 @@ export function reconstructPQFiles(questions: QuestionRecord[]): PQFile[] {
         text: q.questionText || q.text || "",
         marks: q.marks || 1,
         topic,
-        frequency: topicCounts[topic] || 1,
+        frequency: courseTopicCounts[q.courseCode || "General"][topic] || 1,
         answer: q.answer || "",
         solution: q.solutionText || q.solution || "",
         type: q.type || "theory",

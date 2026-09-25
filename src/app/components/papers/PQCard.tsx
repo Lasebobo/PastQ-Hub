@@ -7,6 +7,7 @@ import { freqMeta, FreqIcon } from "../../utils/frequency";
 
 export function PQCard({ pq, onOpen }: { pq: PQFile; onOpen: () => void }) {
   const topTopics = [...new Map(pq.questions.map(q => [q.topic, q.frequency])).entries()]
+    .filter(t => t[0].toLowerCase() !== "general")
     .sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   return (
