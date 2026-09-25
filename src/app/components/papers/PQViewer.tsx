@@ -400,22 +400,29 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
         <div ref={containerRef} className={cn("bg-white shadow-sm flex flex-col transition-all relative group", 
           isFullscreen ? "w-screen h-screen m-0 p-0 rounded-none border-0" : "rounded-2xl border border-gray-100 p-3 mb-6")}>
           
-          <div className={cn("flex justify-between items-center", isFullscreen ? "bg-[#0F2340] text-white p-4" : "mb-2 px-2")}>
-            <span className={cn("text-xs font-bold", isFullscreen ? "text-white" : "text-gray-500")}>
+          <div className={cn("flex justify-between items-center gap-2", isFullscreen ? "bg-[#0F2340] text-white p-4" : "mb-2 px-2")}>
+            <span className={cn("text-xs font-bold truncate", isFullscreen ? "text-white" : "text-gray-500")}>
               Document Viewer
             </span>
-            <button onClick={toggleFullscreen} 
-              className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2", 
-                isFullscreen ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700")}>
-              <Maximize size={14} /> {isFullscreen ? "Exit Fullscreen" : "Expand Fullscreen"}
-            </button>
+            <div className="flex gap-2">
+              <a href={pq.originalFileUrl} target="_blank" rel="noreferrer"
+                className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2",
+                  isFullscreen ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700")}>
+                Open Native
+              </a>
+              <button onClick={toggleFullscreen} 
+                className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2", 
+                  isFullscreen ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700")}>
+                <Maximize size={14} /> {isFullscreen ? "Exit" : "Fullscreen"}
+              </button>
+            </div>
           </div>
 
           {pq.originalFileType?.startsWith("image/") ? (
             <img src={pq.originalFileUrl} alt={`${pq.courseCode} ${pq.session} original paper`}
               className={cn("w-full object-contain bg-gray-50", isFullscreen ? "flex-1 h-0" : "rounded-xl border border-gray-100")} />
           ) : (
-            <iframe src={`${pq.originalFileUrl}#toolbar=0&navpanes=0&scrollbar=0`} title={`${pq.courseCode} ${pq.session} original paper`}
+            <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(pq.originalFileUrl)}&embedded=true`} title={`${pq.courseCode} ${pq.session} original paper`}
               className={cn("w-full", isFullscreen ? "flex-1 h-0 bg-white" : "h-[85vh] rounded-xl border border-gray-100")} />
           )}
         </div>
