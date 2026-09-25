@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Camera, Check, CheckCircle, Loader2 } from "lucide-react";
-import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection, getDocs, query, where } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { PDFDocument } from "pdf-lib";
 
 import { auth, db, storage } from "../../lib/firebase";
 
@@ -21,6 +22,7 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [pdfPageRange, setPdfPageRange] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const parseMetaFromFilename = (filename: string) => {
@@ -145,9 +147,46 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
       // Add all standalone PDFs to the processing queue
       const isSingleUpload = pdfFiles.length === 1 && imageFiles.length === 0;
       for (const pdf of pdfFiles) {
+        let finalPdfFile: File = pdf;
+
+        // If single PDF upload and a range is specified, split the PDF!
+        if (isSingleUpload && pdfPageRange.trim() !== "") {
+          try {
+            const pdfBytes = await pdf.arrayBuffer();
+            const sourceDoc = await PDFDocument.load(pdfBytes);
+            const newDoc = await PDFDocument.create();
+            
+            // parse ranges e.g. "1, 2-4, 7"
+            const parts = pdfPageRange.split(',').map(s => s.trim());
+            const pagesToKeep = new Set<number>();
+            for (const p of parts) {
+              if (p.includes('-')) {
+                const [start, end] = p.split('-').map(Number);
+                for (let i = start; i <= end; i++) pagesToKeep.add(i - 1); // 0-indexed
+              } else {
+                pagesToKeep.add(Number(p) - 1);
+              }
+            }
+            
+            const sortedPages = Array.from(pagesToKeep).filter(p => p >= 0 && p < sourceDoc.getPageCount()).sort((a, b) => a - b);
+            if (sortedPages.length === 0) throw new Error("No valid pages selected");
+            
+            const copiedPages = await newDoc.copyPages(sourceDoc, sortedPages);
+            copiedPages.forEach(page => newDoc.addPage(page));
+            
+            const newPdfBytes = await newDoc.save();
+            finalPdfFile = new File([newPdfBytes], pdf.name, { type: 'application/pdf' });
+          } catch (e) {
+            console.error("Failed to split PDF:", e);
+            setSubmitError("Failed to extract specific pages from the PDF. Please check the page range.");
+            setSubmitting(false);
+            return;
+          }
+        }
+
         const parsed = parseMetaFromFilename(pdf.name);
         itemsToProcess.push({
-          file: pdf,
+          file: finalPdfFile,
           filename: pdf.name,
           type: pdf.type || "application/pdf",
           meta: {
@@ -201,6 +240,21 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
         const finalSemester = extractedMeta?.semester || item.meta.semester;
         const finalLevel = extractedMeta?.level || item.meta.level;
         const finalYear = extractedMeta?.year || Number(finalSession.split('/')[0]) || 2024;
+
+        // Duplicate check
+        const existingDocs = await getDocs(
+          query(
+            collection(db, 'questions'),
+            where('courseCode', '==', finalCourseCode),
+            where('session', '==', finalSession)
+          )
+        );
+        
+        if (!existingDocs.empty) {
+          console.warn(`Duplicate found for ${finalCourseCode} ${finalSession}. Skipping...`);
+          setSubmitError(prev => (prev ? prev + "\n" : "") + `Duplicate avoided: ${finalCourseCode} ${finalSession} is already in the database.`);
+          continue; // Skip inserting this paper
+        }
 
         allInserts.push({
           courseCode: finalCourseCode,
@@ -281,6 +335,15 @@ export function UploadView({ fetchQuestions }: { fetchQuestions: () => void }) {
           </div>
           <input ref={fileRef} type="file" accept="image/*,.pdf" multiple className="hidden"
             onChange={e => { if (e.target.files?.length) loadFiles(e.target.files); }} />
+
+          {files.length === 1 && files[0].type === "application/pdf" && (
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-1">
+              <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest block">Extract Specific Pages (Optional)</label>
+              <input value={pdfPageRange} onChange={e => setPdfPageRange(e.target.value)}
+                placeholder="e.g. 1, 3, 4-7 (leave blank for all)"
+                className="w-full bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/20" />
+            </div>
+          )}
 
           {autoTitle && (
             <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
