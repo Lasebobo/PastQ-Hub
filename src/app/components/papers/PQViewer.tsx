@@ -337,7 +337,7 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
               <span>{pq.totalMarks} marks</span>
             </div>
           </div>
-          <div className="flex gap-2 shrink-0 flex-wrap justify-end mt-3 lg:mt-0">
+          <div className="flex gap-2 flex-wrap mt-3 lg:mt-0 w-full lg:w-auto">
             {(userProfile?.role === "admin" || userProfile?.role === "lecturer") && (
               <>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleBulkUpload} />
@@ -400,11 +400,11 @@ export function PQViewer({ pq, onBack, onStartQuiz, userProfile, fetchQuestions 
         <div ref={containerRef} className={cn("bg-white shadow-sm flex flex-col transition-all relative group", 
           isFullscreen ? "w-screen h-screen m-0 p-0 rounded-none border-0" : "rounded-2xl border border-gray-100 p-3 mb-6")}>
           
-          <div className={cn("flex justify-between items-center gap-2", isFullscreen ? "bg-[#0F2340] text-white p-4" : "mb-2 px-2")}>
-            <span className={cn("text-xs font-bold truncate", isFullscreen ? "text-white" : "text-gray-500")}>
+          <div className={cn("flex flex-wrap justify-between items-start sm:items-center gap-3", isFullscreen ? "bg-[#0F2340] text-white p-4" : "mb-2 px-2")}>
+            <span className={cn("text-xs font-bold", isFullscreen ? "text-white" : "text-gray-500")}>
               Document Viewer
             </span>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 mt-2 sm:mt-0">
               <a href={pq.originalFileUrl} target="_blank" rel="noreferrer"
                 className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2",
                   isFullscreen ? "bg-white/10 hover:bg-white/20 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700")}>
